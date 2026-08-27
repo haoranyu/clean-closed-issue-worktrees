@@ -61,11 +61,10 @@ npx skills add haoranyu/clean-closed-issue-worktrees \
   --skill clean-closed-issue-worktrees --agent codex --global
 ```
 
-For manual installation, download the
-[`v0.1.0` skill ZIP](https://github.com/haoranyu/clean-closed-issue-worktrees/releases/download/v0.1.0/clean-closed-issue-worktrees-v0.1.0.zip)
-and copy its
-`clean-closed-issue-worktrees` directory into the skill directory used by your
-agent. Do not copy the entire repository: the installable payload is only
+For manual installation, download the versioned source archive from the
+[`v0.1.0` release](https://github.com/haoranyu/clean-closed-issue-worktrees/releases/tag/v0.1.0)
+and copy its `skills/clean-closed-issue-worktrees` directory into the skill
+directory used by your agent. Do not install the entire repository: the payload is only
 [`skills/clean-closed-issue-worktrees`](skills/clean-closed-issue-worktrees).
 
 Then ask the agent to use `$clean-closed-issue-worktrees` with a local repository and a GitHub/GitLab issue-list URL.
