@@ -1,11 +1,14 @@
 ---
 name: clean-closed-issue-worktrees
-description: Safely audit and remove Git worktrees tied to closed GitHub or GitLab issues. Use when a user wants to inspect excessive worktrees, match them to issue/PR/MR status, estimate reclaimable space, or clean completed issue work without losing branches or local changes.
+description: Safely audit and remove Git worktrees linked to closed GitHub or GitLab issues. Use when scanning worktrees, verifying issue/PR/MR state, estimating space savings, or cleaning completed work.
+license: MIT
 ---
 
 # Clean Closed Issue Worktrees
 
 Clean completed worktrees through a mandatory scan-confirm-execute protocol. Match the language of all user-facing questions, reports, warnings, and results to the user's current language. Preserve commands, paths, branch names, and provider field names verbatim.
+
+Resolve relative resource paths in this file from the skill directory. Before invoking the bundled script, resolve `scripts/worktree_cleanup.py` to an absolute path so the command does not depend on the target repository's working directory.
 
 ## Safety contract
 
@@ -27,7 +30,7 @@ Clean completed worktrees through a mandatory scan-confirm-execute protocol. Mat
 5. Run the local inventory script from a directory outside every removal candidate:
 
    ```bash
-   python3 scripts/worktree_cleanup.py scan \
+   python3 <skill-root>/scripts/worktree_cleanup.py scan \
      --repo /absolute/path/inside/repository \
      --baseline <matched-remote>/<default-branch> \
      --json-out "$TEMP_DIR/scan.json" \
@@ -70,7 +73,7 @@ Do not enter this phase until the user has seen Phase 1 results and explicitly s
 3. Create the immutable plan. The script refuses locally unsafe selections:
 
    ```bash
-   python3 scripts/worktree_cleanup.py create-plan \
+   python3 <skill-root>/scripts/worktree_cleanup.py create-plan \
      --repo /absolute/path/inside/repository \
      --selection "$TEMP_DIR/selection.json" \
      --output "$TEMP_DIR/plan.json"
@@ -80,7 +83,7 @@ Do not enter this phase until the user has seen Phase 1 results and explicitly s
 5. Execute only with the exact `plan_id` shown in the confirmation. The script rechecks the whole batch before the first mutation and aborts if HEAD, branch, dirty state, ignored paths, retaining refs, baseline, lock state, registration, path resolution, or repository identity changed:
 
    ```bash
-   python3 scripts/worktree_cleanup.py execute \
+   python3 <skill-root>/scripts/worktree_cleanup.py execute \
      --plan "$TEMP_DIR/plan.json" \
      --confirm-plan <exact-plan-id> \
      --delete-plan-on-success

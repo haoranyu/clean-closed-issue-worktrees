@@ -12,14 +12,40 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            python: "3.9"
+          - os: macos-latest
+            python: "3.9"
+          - os: windows-latest
+            python: "3.9"
+          - os: ubuntu-latest
+            python: "3.14"
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python }}
       - name: Compile
-        run: python -m py_compile scripts/worktree_cleanup.py tests/test_worktree_cleanup.py
+        run: >-
+          python -m py_compile
+          skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py
+          tests/test_worktree_cleanup.py
+          tests/test_skill_package.py
       - name: Test
         run: python -m unittest discover -s tests -v
+
+  specification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Install the pinned Agent Skills reference validator
+        run: >-
+          python -m pip install
+          "git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref"
+      - name: Validate the installable skill
+        run: skills-ref validate skills/clean-closed-issue-worktrees

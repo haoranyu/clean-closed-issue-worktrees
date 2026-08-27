@@ -9,7 +9,8 @@ import unittest
 from typing import Optional
 
 
-SCRIPT = Path(__file__).parents[1] / "scripts" / "worktree_cleanup.py"
+SKILL_ROOT = Path(__file__).parents[1] / "skills" / "clean-closed-issue-worktrees"
+SCRIPT = SKILL_ROOT / "scripts" / "worktree_cleanup.py"
 SPEC = importlib.util.spec_from_file_location("worktree_cleanup", SCRIPT)
 assert SPEC and SPEC.loader
 cleanup = importlib.util.module_from_spec(SPEC)

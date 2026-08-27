@@ -31,19 +31,54 @@ The default recommendation is to remove worktrees while retaining local branches
 
 ## Install
 
-Clone or copy this directory into the skill directory used by your agent harness. Examples:
+Requires GitHub CLI 2.90.0 or later. Preview the complete skill payload before installing it:
 
 ```bash
-git clone https://github.com/haoranyu/clean-closed-issue-worktrees.git \
-  ~/.codex/skills/clean-closed-issue-worktrees
+gh skill preview haoranyu/clean-closed-issue-worktrees \
+  clean-closed-issue-worktrees
 ```
 
+Install and pin the audited `v0.1.0` release for Codex:
+
 ```bash
-git clone https://github.com/haoranyu/clean-closed-issue-worktrees.git \
-  ~/.claude/skills/clean-closed-issue-worktrees
+gh skill install haoranyu/clean-closed-issue-worktrees \
+  clean-closed-issue-worktrees@v0.1.0 \
+  --agent codex --scope user
 ```
+
+Or for Claude Code:
+
+```bash
+gh skill install haoranyu/clean-closed-issue-worktrees \
+  clean-closed-issue-worktrees@v0.1.0 \
+  --agent claude-code --scope user
+```
+
+With Node.js 22.20 or later, the cross-agent `skills` CLI is another option:
+
+```bash
+npx skills add haoranyu/clean-closed-issue-worktrees \
+  --skill clean-closed-issue-worktrees --agent codex --global
+```
+
+For manual installation, download the
+[`v0.1.0` skill ZIP](https://github.com/haoranyu/clean-closed-issue-worktrees/releases/download/v0.1.0/clean-closed-issue-worktrees-v0.1.0.zip)
+and copy its
+`clean-closed-issue-worktrees` directory into the skill directory used by your
+agent. Do not copy the entire repository: the installable payload is only
+[`skills/clean-closed-issue-worktrees`](skills/clean-closed-issue-worktrees).
 
 Then ask the agent to use `$clean-closed-issue-worktrees` with a local repository and a GitHub/GitLab issue-list URL.
+
+## Compatibility
+
+| Surface | Status |
+| --- | --- |
+| GitHub, GitLab issue and PR/MR state | Supported through the agent's provider skill, MCP, CLI, API, or browser fallback |
+| Codex and Claude Code | Installable with `gh skill`; core workflow is harness-neutral |
+| Other Agent Skills clients | Standard `SKILL.md` payload; install manually or with a compatible skill installer |
+| Local runtime | Git and Python 3.9+ |
+| Tested systems | Ubuntu, macOS, and Windows |
 
 ## Provider routing
 
@@ -63,8 +98,10 @@ Requirements: Python 3.9+ and Git.
 
 Read-only inventory:
 
+From this repository checkout:
+
 ```bash
-python3 scripts/worktree_cleanup.py scan \
+python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py scan \
   --repo /path/to/repository \
   --baseline upstream/main \
   --json-out /tmp/worktree-scan.json \
@@ -75,7 +112,7 @@ python3 scripts/worktree_cleanup.py scan \
 After provider verification and user review, the agent creates a normalized selection in a temporary directory:
 
 ```bash
-python3 scripts/worktree_cleanup.py create-plan \
+python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py create-plan \
   --repo /path/to/repository \
   --selection /tmp/selection.json \
   --output /tmp/plan.json
@@ -84,13 +121,13 @@ python3 scripts/worktree_cleanup.py create-plan \
 After the user confirms that exact plan:
 
 ```bash
-python3 scripts/worktree_cleanup.py execute \
+python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py execute \
   --plan /tmp/plan.json \
   --confirm-plan <plan-id> \
   --delete-plan-on-success
 ```
 
-See [SKILL.md](SKILL.md) for the agent workflow and [references/evidence-schema.md](references/evidence-schema.md) for the normalized selection format.
+See [SKILL.md](skills/clean-closed-issue-worktrees/SKILL.md) for the agent workflow and [references/evidence-schema.md](skills/clean-closed-issue-worktrees/references/evidence-schema.md) for the normalized selection format.
 
 ## Test
 
