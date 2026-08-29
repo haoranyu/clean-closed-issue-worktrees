@@ -134,11 +134,15 @@ See [SKILL.md](skills/clean-closed-issue-worktrees/SKILL.md) for the agent workf
 
 Tests create isolated temporary repositories and never operate on the checkout containing this skill.
 
-    python3 -m unittest discover -s tests -v
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 On Windows, if `python3` opens the Microsoft Store or does not resolve to your installed interpreter, use `py -3` instead:
 
-    py -3 -m unittest discover -s tests -v
+```powershell
+py -3 -m unittest discover -s tests -v
+```
 
 GitHub Actions runs the suite on Linux, macOS, and Windows.
 
