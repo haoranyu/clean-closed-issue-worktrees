@@ -95,6 +95,8 @@ The script never reads tokens, credential stores, browser cookies, or issue page
 
 Requirements: Python 3.9+ and Git.
 
+On Windows, if `python3` opens the Microsoft Store or does not resolve to your installed interpreter, substitute `py -3` for `python3` in the commands below.
+
 Read-only inventory:
 
 From this repository checkout:
@@ -134,6 +136,12 @@ Tests create isolated temporary repositories and never operate on the checkout c
 
 ```bash
 python3 -m unittest discover -s tests -v
+```
+
+On Windows, if `python3` opens the Microsoft Store or does not resolve to your installed interpreter, use `py -3` instead:
+
+```powershell
+py -3 -m unittest discover -s tests -v
 ```
 
 GitHub Actions runs the suite on Linux, macOS, and Windows.
