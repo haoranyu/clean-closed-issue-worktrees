@@ -2,7 +2,7 @@
 
 A safety-first agent skill for auditing and removing Git worktrees associated with closed GitHub or GitLab issues.
 
-It is designed for Codex, Claude Code, and other skill-capable agent harnesses. Provider access stays in the agent layer, while a deterministic Python script owns local Git inspection, snapshot validation, backup refs, and removal.
+It works with Git-registered worktrees regardless of editor, agent harness, or creator. Provider and live-task integrations stay in the agent layer, while a deterministic Python script owns local Git inspection, managed-root provenance, snapshot validation, backup refs, and removal.
 
 ## Why this exists
 
@@ -20,8 +20,9 @@ The default recommendation is to remove worktrees while retaining local branches
 ## Safety properties
 
 - Only closed ordinary issues or merged PRs/MRs qualify.
-- Dirty, locked, current, main, active-task, and broad paths are refused.
+- Dirty, locked, execution-time current, main, active-task, and broad paths are refused.
 - Unknown harness state and ambiguous issue mapping are review conditions.
+- Paths recognized as harness-managed cannot be mislabeled as unmanaged; unavailable task state fails closed to **Needs review**.
 - Ignored `.env`, database, key, credential, and unknown paths require explicit review.
 - Detached orphan commits can be protected with deterministic backup branches.
 - Branch deletion uses only `git branch -d`; force deletion is not implemented.
@@ -63,17 +64,54 @@ npx skills add haoranyu/clean-closed-issue-worktrees \
 
 ### Plugin marketplaces
 
-This repository is also packaged as a portable Agent Plugin for Cursor and as
-a Claude Code plugin. Both manifests discover the same
-`skills/clean-closed-issue-worktrees` payload; no skill logic is duplicated.
+This repository provides a portable Agent Plugin manifest and Claude Code
+plugin metadata. Cursor is one compatible Agent Plugin host. Both manifests
+discover the same `skills/clean-closed-issue-worktrees` payload; no skill logic
+is duplicated.
 
-For local Cursor testing, clone the repository and link it into Cursor's local
-plugin directory, then reload Cursor:
+For local Cursor testing, clone the repository and copy its portable Agent
+Plugin payload into Cursor's local plugin directory, then reload Cursor. Use a
+physical copy: some Cursor versions reject symlinks whose resolved target is
+outside the local plugin directory. The guard below preserves an existing
+installation on macOS or Linux:
 
 ```bash
-ln -s /absolute/path/to/clean-closed-issue-worktrees \
-  ~/.cursor/plugins/local/clean-closed-issue-worktrees
+cursor_plugin_source=/absolute/path/to/clean-closed-issue-worktrees
+cursor_plugin_target="$HOME/.cursor/plugins/local/clean-closed-issue-worktrees"
+
+if [ -e "$cursor_plugin_target" ]; then
+  printf 'Destination already exists: %s\n' "$cursor_plugin_target" >&2
+  exit 1
+fi
+
+mkdir -p "$cursor_plugin_target"
+cp "$cursor_plugin_source/plugin.json" "$cursor_plugin_target/plugin.json"
+cp -R "$cursor_plugin_source/skills" "$cursor_plugin_target/skills"
 ```
+
+On native Windows PowerShell, copy the plugin to the same documented `~`
+location under `$env:USERPROFILE`, with the same destination guard:
+
+```powershell
+$cursorPluginSource = "C:\absolute\path\to\clean-closed-issue-worktrees"
+$cursorPluginTarget = `
+  "$env:USERPROFILE\.cursor\plugins\local\clean-closed-issue-worktrees"
+
+if (Test-Path -LiteralPath $cursorPluginTarget) {
+  throw "Destination already exists: $cursorPluginTarget"
+}
+
+New-Item -ItemType Directory -Force $cursorPluginTarget | Out-Null
+Copy-Item -LiteralPath "$cursorPluginSource\plugin.json" `
+  -Destination "$cursorPluginTarget\plugin.json"
+Copy-Item -Recurse -LiteralPath "$cursorPluginSource\skills" `
+  -Destination "$cursorPluginTarget\skills"
+```
+
+Run `Developer: Reload Window`, then verify the plugin and skill under
+**Customize**. Cursor's **Add > From Local Repository** action imports a
+marketplace repository; it is not the local single-plugin test path described
+above.
 
 For local Claude Code testing:
 
@@ -97,11 +135,15 @@ Then ask the agent to use `$clean-closed-issue-worktrees` with a local repositor
 | Surface | Status |
 | --- | --- |
 | GitHub, GitLab issue and PR/MR state | Supported through the agent's provider skill, MCP, CLI, API, or browser fallback |
-| Codex and Claude Code | Installable with `gh skill`; core workflow is harness-neutral |
-| Cursor | Installable as an Agent Skill or Agent Plugin; Cursor-managed paths without authoritative task state remain **Needs review** ([tracking issue](https://github.com/haoranyu/clean-closed-issue-worktrees/issues/2)) |
+| Generic local Git worktrees | The engine can inspect and remove any Git-registered worktree, regardless of creator; generic Git compatibility alone does not prove task inactivity |
+| Managed-root provenance | Root recognition is adapter-specific. Cursor's documented local root is the current built-in path adapter; worktrees from other editors remain inspectable, authoritative exact-path ownership is used when available, and missing state remains **Needs review** |
+| Known task-state mappings (non-exhaustive) | Codex, Claude Code, and Cursor have documented ownership and state mappings; named integrations are not an allowlist, and unavailable authoritative state remains **Needs review** |
+| Cursor local worktrees | Installable as an Agent Skill or Agent Plugin; Agents Window, IDE `/worktree`, `/best-of-n`, and CLI `--worktree` are covered through the documented `~/.cursor/worktrees` root. The scanner resolves `~` through the runtime home: `$HOME/.cursor/worktrees` on macOS, Linux, and WSL, and `%USERPROFILE%\.cursor\worktrees` on native Windows. An explicit absolute `CURSOR_WORKTREES_ROOT` compatibility override can bridge a known cross-runtime path; the scanner never guesses `%APPDATA%` or an installation directory. An isolated local subagent is covered when a recognized root contains it or authoritative metadata maps its exact path; otherwise state fails closed to **Needs review** |
+| Remote Cursor Cloud Agents | Cursor-hosted and `/in-cloud` VM clones are out of local cleanup scope; an exact locally registered self-hosted/Remote Control checkout still follows normal fail-closed ownership rules |
+| Codex and Claude Code | Installable with `gh skill`; their existing task/session mapping rules are unchanged |
 | Other Agent Skills clients | Standard `SKILL.md` payload; install manually or with a compatible skill installer |
 | Local runtime | Git and Python 3.9+ |
-| Tested systems | Ubuntu, macOS, and Windows |
+| Script/package CI | Ubuntu, macOS, and native Windows. CI exercises default-home and explicit-root Cursor detection plus the original generic scan/plan/remove flow; live host task/session integrations are not exercised in CI |
 
 ## Provider routing
 
@@ -134,6 +176,18 @@ python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py scan \
   --stdout none
 ```
 
+The equivalent native Windows PowerShell scan uses a Windows repository path
+and the system temporary directory:
+
+```powershell
+py -3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py scan `
+  --repo "C:\path\to\repository" `
+  --baseline upstream/main `
+  --json-out "$env:TEMP\worktree-scan.json" `
+  --markdown-out "$env:TEMP\worktree-scan.md" `
+  --stdout none
+```
+
 After provider verification and user review, the agent creates a normalized selection in a temporary directory:
 
 ```bash
@@ -143,12 +197,26 @@ python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py create-p
   --output /tmp/plan.json
 ```
 
+```powershell
+py -3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py create-plan `
+  --repo "C:\path\to\repository" `
+  --selection "$env:TEMP\selection.json" `
+  --output "$env:TEMP\plan.json"
+```
+
 After the user confirms that exact plan:
 
 ```bash
 python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py execute \
   --plan /tmp/plan.json \
   --confirm-plan <plan-id> \
+  --delete-plan-on-success
+```
+
+```powershell
+py -3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py execute `
+  --plan "$env:TEMP\plan.json" `
+  --confirm-plan EXACT_PLAN_ID `
   --delete-plan-on-success
 ```
 

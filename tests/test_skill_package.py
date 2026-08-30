@@ -68,6 +68,65 @@ class SkillPackageTests(unittest.TestCase):
         metadata = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn("$clean-closed-issue-worktrees", metadata)
 
+    def test_harness_contract_is_editor_agnostic(self) -> None:
+        harness = (SKILL_ROOT / "references" / "harness-detection.md").read_text(
+            encoding="utf-8"
+        )
+        skill = SKILL_FILE.read_text(encoding="utf-8")
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("cleanup policy is editor-neutral", harness)
+        self.assertIn("adapters, not an allowlist", harness)
+        self.assertIn("Generic Git-registered worktrees remain supported", harness)
+        self.assertIn("every scanner-recognized", skill)
+        self.assertIn("regardless of editor, agent harness, or creator", readme)
+        self.assertIn("Managed-root provenance", readme)
+        self.assertIn("Known task-state mappings (non-exhaustive)", readme)
+
+    def test_cursor_adapter_contract_is_documented(self) -> None:
+        harness = (SKILL_ROOT / "references" / "harness-detection.md").read_text(
+            encoding="utf-8"
+        )
+        skill = SKILL_FILE.read_text(encoding="utf-8")
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("## Cursor", harness)
+        for surface in (
+            "Agents Window",
+            "`/worktree`",
+            "`/best-of-n`",
+            "`--worktree",
+            "isolated local subagent",
+        ):
+            self.assertIn(surface, harness)
+        self.assertIn("~/.cursor/worktrees/<reponame>/<name>", harness)
+        self.assertIn("CURSOR_WORKTREES_ROOT", harness)
+        self.assertIn("never `not_managed`", harness)
+        self.assertIn("resumable", harness)
+        self.assertIn("explicitly completed or archived", harness)
+        self.assertIn('runtime: "local"', harness)
+        self.assertIn("current host", harness)
+        self.assertIn("Cursor-hosted Cloud Agents", harness)
+        self.assertIn("Cursor 3.5", harness)
+        self.assertIn(r"%USERPROFILE%\.cursor\worktrees", harness)
+        self.assertIn("native Windows CLI installation", harness)
+        self.assertIn("original selection format", harness)
+        self.assertIn("harness-specific mapping", skill)
+        self.assertIn("Generic local Git worktrees", readme)
+        self.assertIn("Cursor local worktrees", readme)
+        self.assertIn(r"%USERPROFILE%\.cursor\worktrees", readme)
+        self.assertIn("native Windows PowerShell", readme)
+
+    def test_original_selection_and_plan_compatibility_is_documented(self) -> None:
+        evidence = (SKILL_ROOT / "references" / "evidence-schema.md").read_text(
+            encoding="utf-8"
+        )
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("original Codex/Claude selection format stays valid", evidence)
+        self.assertIn("also accepts a schema-1 plan", evidence)
+        self.assertIn("original generic scan/plan/remove flow", readme)
+
 
 if __name__ == "__main__":
     unittest.main()

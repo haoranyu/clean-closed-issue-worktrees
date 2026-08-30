@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Audit and safely remove Git worktrees selected by an agent.
 
-Remote issue and harness facts are intentionally supplied as normalized evidence.
-This script owns only deterministic local Git inspection and mutation.
+Remote issue and live harness-task facts are supplied as normalized evidence.
+This script owns deterministic local Git inspection, recognized path provenance,
+and mutation.
 """
 
 from __future__ import annotations
@@ -23,8 +24,11 @@ import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 
-SCHEMA_VERSION = 1
-PLAN_SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+PLAN_SCHEMA_VERSION = 2
+SUPPORTED_PLAN_SCHEMA_VERSIONS = frozenset({1, PLAN_SCHEMA_VERSION})
+ALLOWED_HARNESS_STATES = frozenset({"active", "inactive", "not_managed", "unknown"})
+HARNESS_IDENTIFIER_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 REGENERABLE_IGNORED_NAMES = {
     ".cache",
     ".mypy_cache",
@@ -121,7 +125,56 @@ def is_within(path: Path, parent: Path) -> bool:
         path.relative_to(parent)
         return True
     except ValueError:
+        pass
+
+    # Native Path comparison follows the runtime's lexical rules. On a
+    # case-insensitive POSIX volume, differently cased aliases can still name
+    # the same directory, so compare existing ancestors by filesystem identity.
+    parent_samefile = getattr(parent, "samefile", None)
+    if parent_samefile is None:
         return False
+    for candidate in (path, *path.parents):
+        try:
+            if parent_samefile(candidate):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def cursor_worktree_roots() -> Tuple[Path, ...]:
+    """Return roots relative to the runtime home on Unix, WSL, or Windows."""
+
+    roots = [Path.home() / ".cursor" / "worktrees"]
+    configured = os.environ.get("CURSOR_WORKTREES_ROOT")
+    if configured:
+        configured_root = Path(configured).expanduser()
+        if not configured_root.is_absolute():
+            raise CleanupError("CURSOR_WORKTREES_ROOT must be absolute when supplied")
+        if configured_root not in roots:
+            roots.append(configured_root)
+    return tuple(roots)
+
+
+def path_variants(path: Union[str, Path]) -> Tuple[Path, ...]:
+    absolute = Path(path).expanduser().absolute()
+    resolved = canonical(absolute)
+    return (absolute,) if absolute == resolved else (absolute, resolved)
+
+
+def cursor_managed_harness_for_path(path: Union[str, Path]) -> Optional[str]:
+    """Return Cursor path provenance without guessing task state."""
+
+    candidates = path_variants(path)
+    for root in cursor_worktree_roots():
+        roots = path_variants(root)
+        if any(
+            is_within(candidate, parent)
+            for candidate in candidates
+            for parent in roots
+        ):
+            return "cursor"
+    return None
 
 
 def repository_context(repo_arg: Union[str, Path]) -> Dict[str, str]:
@@ -328,6 +381,7 @@ def inspect_worktree(
     path_text = record["path"]
     absolute = Path(path_text).expanduser().absolute()
     resolved = canonical(absolute) if absolute.exists() else absolute
+    managed_harness = cursor_managed_harness_for_path(absolute)
     item = dict(record)
     item.update(
         {
@@ -336,6 +390,7 @@ def inspect_worktree(
             "path_is_symlinked": str(absolute) != str(resolved),
             "is_main": str(absolute) == main_worktree,
             "is_scan_anchor": str(absolute) == scan_anchor,
+            "managed_harness": managed_harness,
             "exists": absolute.exists(),
             "dirty": None,
             "status": [],
@@ -432,8 +487,8 @@ def scan_markdown(scan: Dict[str, Any]) -> str:
         "",
         f"Generated: `{scan['generated_at']}`",
         "",
-        "| Path | Branch | Local state | Issue evidence | Retaining refs | Size |",
-        "|---|---|---|---|---:|---:|",
+        "| Path | Branch | Local state | Managed harness | Issue evidence | Retaining refs | Size |",
+        "|---|---|---|---|---|---:|---:|",
     ]
     for item in scan["worktrees"]:
         branch = item.get("branch") or "(detached)"
@@ -454,9 +509,10 @@ def scan_markdown(scan: Dict[str, Any]) -> str:
             | set(evidence.get("weak_commit_ids", []))
         )
         issue_text = ", ".join(f"#{value}" for value in issue_ids) or "—"
+        managed_harness = item.get("managed_harness") or "—"
         path = str(item["path"]).replace("|", "\\|")
         lines.append(
-            f"| `{path}` | `{branch}` | {state} | {issue_text} | "
+            f"| `{path}` | `{branch}` | {state} | {managed_harness} | {issue_text} | "
             f"{len(item.get('retaining_refs', []))} | {human_size(item.get('size_bytes'))} |"
         )
     return "\n".join(lines) + "\n"
@@ -493,7 +549,20 @@ def ignored_fingerprint(entries: Iterable[str]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def validate_remote_evidence(evidence: Dict[str, Any], *, risk_acknowledged: bool) -> None:
+def require_json_boolean(value: Any, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise CleanupError(f"{field} must be a JSON boolean")
+    return value
+
+
+def validate_selection_evidence(
+    evidence: Any,
+    *,
+    risk_acknowledged: bool,
+    managed_harness: Optional[str] = None,
+) -> None:
+    if not isinstance(evidence, dict):
+        raise CleanupError("Selection evidence must be a JSON object")
     issue = evidence.get("issue")
     if not isinstance(issue, dict):
         raise CleanupError("Every selected worktree requires normalized issue/PR/MR evidence")
@@ -528,11 +597,42 @@ def validate_remote_evidence(evidence: Dict[str, Any], *, risk_acknowledged: boo
     if confidence != "strong" and not risk_acknowledged:
         raise CleanupError("Issue mapping is not strong and risk_acknowledged is false")
 
+    harness_name = evidence.get("harness_name")
+    if harness_name is not None and (
+        not isinstance(harness_name, str)
+        or not HARNESS_IDENTIFIER_RE.fullmatch(harness_name)
+    ):
+        raise CleanupError("harness_name must be a normalized harness identifier")
+
     harness = evidence.get("harness_state")
+    if not isinstance(harness, str) or harness not in ALLOWED_HARNESS_STATES:
+        raise CleanupError(f"Unsupported harness_state: {harness!r}")
+    has_harness_owner = managed_harness is not None or harness_name is not None
+    if harness == "not_managed" and has_harness_owner:
+        raise CleanupError("A harness-managed worktree cannot be classified as not_managed")
     if harness == "active":
         raise CleanupError("An active harness task may still be using this worktree")
     if harness not in {"inactive", "not_managed"} and not risk_acknowledged:
         raise CleanupError("Harness state is not proven inactive and risk_acknowledged is false")
+
+
+def validate_protected_worktree(
+    item: Dict[str, Any],
+    *,
+    main_worktree: str,
+    scan_anchor: str,
+    cwd: Path,
+) -> None:
+    path = Path(item["path"])
+    resolved = Path(item["resolved_path"])
+    if item.get("is_main") or item["path"] == main_worktree:
+        raise CleanupError(f"Refusing to remove the main worktree: {path}")
+    if item.get("is_scan_anchor") or item["path"] == scan_anchor:
+        raise CleanupError(f"Refusing to remove the scan anchor worktree: {path}")
+    if is_within(cwd, resolved):
+        raise CleanupError(
+            f"Refusing to remove the current working directory or its ancestor: {path}"
+        )
 
 
 def validate_target_for_plan(
@@ -543,22 +643,23 @@ def validate_target_for_plan(
     scan_anchor: str,
     branch_action: str,
     backup_orphans: bool,
+    risk_acknowledged: bool,
+    ignored_paths_approved: bool,
 ) -> Optional[str]:
     path = Path(item["path"])
     resolved = Path(item["resolved_path"])
     cwd = canonical(Path.cwd())
     home = canonical(Path.home())
     root = Path(path.anchor)
-    risk_acknowledged = bool(selection.get("risk_acknowledged"))
 
-    if item.get("is_main") or item["path"] == main_worktree:
-        raise CleanupError(f"Refusing to remove the main worktree: {path}")
-    if item.get("is_scan_anchor") or item["path"] == scan_anchor:
-        raise CleanupError(f"Refusing to remove the scan anchor worktree: {path}")
+    validate_protected_worktree(
+        item,
+        main_worktree=main_worktree,
+        scan_anchor=scan_anchor,
+        cwd=cwd,
+    )
     if path in {home, root}:
         raise CleanupError(f"Refusing broad destructive path: {path}")
-    if is_within(cwd, resolved):
-        raise CleanupError(f"Refusing to remove the current working directory or its ancestor: {path}")
     if item.get("path_is_symlinked"):
         raise CleanupError(f"Refusing a symlink-resolved worktree path: {path}")
     if not item.get("exists"):
@@ -574,10 +675,14 @@ def validate_target_for_plan(
 
     ignored = item.get("ignored", {})
     risky_ignored = list(ignored.get("sensitive", [])) + list(ignored.get("unknown", []))
-    if risky_ignored and not selection.get("ignored_paths_approved"):
+    if risky_ignored and not ignored_paths_approved:
         raise CleanupError(f"Worktree has unapproved ignored paths: {path}: {risky_ignored}")
 
-    validate_remote_evidence(selection.get("evidence", {}), risk_acknowledged=risk_acknowledged)
+    validate_selection_evidence(
+        selection.get("evidence", {}),
+        risk_acknowledged=risk_acknowledged,
+        managed_harness=item.get("managed_harness"),
+    )
 
     branch = item.get("branch")
     retaining_refs = item.get("retaining_refs", [])
@@ -601,7 +706,9 @@ def create_plan(repo_arg: str, selection_path: Path, output_path: Path) -> Dict[
     branch_action = selection.get("branch_action", "keep")
     if branch_action not in {"keep", "delete"}:
         raise CleanupError("branch_action must be `keep` or `delete`")
-    backup_orphans = bool(selection.get("backup_orphans", False))
+    backup_orphans = require_json_boolean(
+        selection.get("backup_orphans", False), "backup_orphans"
+    )
     baseline = selection.get("baseline")
     targets = selection.get("targets")
     if not isinstance(targets, list) or not targets:
@@ -636,6 +743,12 @@ def create_plan(repo_arg: str, selection_path: Path, output_path: Path) -> Dict[
         item = by_path.get(selected_path)
         if item is None:
             raise CleanupError(f"Selected path is not a registered worktree: {selected_path}")
+        risk_acknowledged = require_json_boolean(
+            selected.get("risk_acknowledged", False), "risk_acknowledged"
+        )
+        ignored_paths_approved = require_json_boolean(
+            selected.get("ignored_paths_approved", False), "ignored_paths_approved"
+        )
         backup_branch = validate_target_for_plan(
             item,
             selected,
@@ -643,6 +756,8 @@ def create_plan(repo_arg: str, selection_path: Path, output_path: Path) -> Dict[
             scan_anchor=scan_anchor,
             branch_action=branch_action,
             backup_orphans=backup_orphans,
+            risk_acknowledged=risk_acknowledged,
+            ignored_paths_approved=ignored_paths_approved,
         )
         if backup_branch and backup_branch in backup_names:
             raise CleanupError(f"Multiple targets would create the same backup branch: {backup_branch}")
@@ -660,8 +775,9 @@ def create_plan(repo_arg: str, selection_path: Path, output_path: Path) -> Dict[
                 "ignored_entries": item.get("ignored_entries", []),
                 "retaining_refs": item.get("retaining_refs", []),
                 "size_bytes": item.get("size_bytes"),
+                "managed_harness": item.get("managed_harness"),
                 "evidence": selected.get("evidence", {}),
-                "risk_acknowledged": bool(selected.get("risk_acknowledged")),
+                "risk_acknowledged": risk_acknowledged,
             }
         )
 
@@ -686,16 +802,30 @@ def verify_common_dir(repo: Path, expected: str) -> None:
 
 
 def preflight_plan(repo: Path, plan: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    require_json_boolean(plan.get("backup_orphans", False), "backup_orphans")
     baseline = plan["repository"].get("baseline")
     fresh = scan_repository(repo, baseline=baseline)
     if fresh["repository"].get("baseline_resolved") != plan["repository"].get("baseline_resolved"):
         raise CleanupError("Baseline moved since confirmation")
     by_path = {item["path"]: item for item in fresh["worktrees"]}
+    main_worktree = fresh["repository"]["main_worktree"]
+    scan_anchor = fresh["repository"]["scan_anchor"]
+    cwd = canonical(Path.cwd())
     for target in plan["targets"]:
         path = target["path"]
         item = by_path.get(path)
         if item is None:
             raise CleanupError(f"Worktree is no longer registered: {path}")
+        validate_protected_worktree(
+            item,
+            main_worktree=main_worktree,
+            scan_anchor=scan_anchor,
+            cwd=cwd,
+        )
+        if plan.get("schema_version") == 1 and item.get("managed_harness") is not None:
+            raise CleanupError(
+                f"Harness path ownership changed for a schema-1 plan; recreate it: {path}"
+            )
         if item.get("head") != target.get("head"):
             raise CleanupError(f"HEAD changed since confirmation: {path}")
         if item.get("branch") != target.get("branch"):
@@ -706,6 +836,16 @@ def preflight_plan(repo: Path, plan: Dict[str, Any]) -> Dict[str, Dict[str, Any]
             raise CleanupError(f"Worktree lock/prunable state changed after confirmation: {path}")
         if item.get("resolved_path") != target.get("resolved_path") or item.get("path_is_symlinked"):
             raise CleanupError(f"Worktree path resolution changed after confirmation: {path}")
+        if item.get("managed_harness") != target.get("managed_harness"):
+            raise CleanupError(f"Harness path ownership changed after confirmation: {path}")
+        risk_acknowledged = require_json_boolean(
+            target.get("risk_acknowledged", False), "risk_acknowledged"
+        )
+        validate_selection_evidence(
+            target.get("evidence", {}),
+            risk_acknowledged=risk_acknowledged,
+            managed_harness=item.get("managed_harness"),
+        )
         if ignored_fingerprint(item.get("ignored_entries", [])) != target.get("ignored_fingerprint"):
             raise CleanupError(f"Ignored paths changed after confirmation: {path}")
         if not target.get("backup_branch") and not item.get("retaining_refs"):
@@ -730,7 +870,12 @@ def execute_plan(
     delete_plan_on_success: bool,
 ) -> Tuple[Dict[str, Any], int]:
     plan = load_json(plan_path)
-    if plan.get("schema_version") != PLAN_SCHEMA_VERSION:
+    plan_schema_version = plan.get("schema_version")
+    if (
+        not isinstance(plan_schema_version, int)
+        or isinstance(plan_schema_version, bool)
+        or plan_schema_version not in SUPPORTED_PLAN_SCHEMA_VERSIONS
+    ):
         raise CleanupError("Unsupported plan schema version")
     if confirm_plan != plan.get("plan_id"):
         raise CleanupError("--confirm-plan must exactly match the plan_id shown to the user")
