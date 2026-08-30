@@ -39,11 +39,11 @@ gh skill preview haoranyu/clean-closed-issue-worktrees \
   clean-closed-issue-worktrees
 ```
 
-Install and pin the audited `v0.1.2` release for Codex:
+Install and pin the audited `v0.2.0` release for Codex:
 
 ```bash
 gh skill install haoranyu/clean-closed-issue-worktrees \
-  clean-closed-issue-worktrees@v0.1.2 \
+  clean-closed-issue-worktrees@v0.2.0 \
   --agent codex --scope user
 ```
 
@@ -51,7 +51,7 @@ Or for Claude Code:
 
 ```bash
 gh skill install haoranyu/clean-closed-issue-worktrees \
-  clean-closed-issue-worktrees@v0.1.2 \
+  clean-closed-issue-worktrees@v0.2.0 \
   --agent claude-code --scope user
 ```
 
@@ -123,7 +123,7 @@ Marketplace installation instructions will be added after the Cursor and
 Claude community reviews approve the plugin.
 
 For manual installation, download the versioned source archive from the
-[`v0.1.2` release](https://github.com/haoranyu/clean-closed-issue-worktrees/releases/tag/v0.1.2)
+[`v0.2.0` release](https://github.com/haoranyu/clean-closed-issue-worktrees/releases/tag/v0.2.0)
 and copy its `skills/clean-closed-issue-worktrees` directory into the skill
 directory used by your agent. Do not install the entire repository: the payload is only
 [`skills/clean-closed-issue-worktrees`](skills/clean-closed-issue-worktrees).
