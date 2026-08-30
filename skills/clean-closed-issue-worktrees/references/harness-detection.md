@@ -26,7 +26,7 @@ When Codex thread/task tools are available:
 
 1. List tasks and map each exact `cwd` to the registered worktree path.
 2. Treat `active`, running, waiting, or needs-attention tasks as active.
-3. Treat archived/completed tasks as inactive only when the evidence also identifies the owner through scanner-derived `managed_harness` path provenance or a normalized `harness_name`.
+3. Treat archived/completed tasks as inactive. Record `harness_name: "codex"` in new evidence; the original selection format without that optional field remains valid.
 4. Treat `notLoaded`, idle-but-resumable, missing pagination coverage, or ambiguous duplicate tasks as unknown unless the user confirms completion.
 5. Never remove the calling task's own worktree.
 
@@ -34,7 +34,7 @@ If the user later asks to archive or otherwise manage a Codex task, use the harn
 
 ## Claude Code
 
-Use any available session/task metadata and exact working-directory mapping. A path under `.claude/worktrees` is harness-managed even if no process is visible. If no authoritative session state is available, mark it unknown and request confirmation after presenting the scan.
+Use any available session/task metadata and exact working-directory mapping. Record `harness_name: "claude-code"` in new evidence. A path under `.claude/worktrees` is harness-managed even if no process is visible. If no authoritative session state is available, mark it unknown and request confirmation after presenting the scan. The original selection format without the optional harness name remains valid.
 
 ## Cursor
 
@@ -50,7 +50,7 @@ Cursor-hosted Cloud Agents and documented `/in-cloud` cloud subagents are out of
 
 ### Ownership
 
-Cursor documents CLI worktrees under `~/.cursor/worktrees/<reponame>/<name>`, alongside editor-created worktrees. Expand `~` with the current runtime's user home and compare both absolute and resolved paths by containment; do not hard-code a macOS, Linux, or Windows home prefix. The bundled scanner reports `managed_harness: "cursor"` for registered paths under this root, including a root reached through a symlink.
+Cursor documents CLI worktrees under `~/.cursor/worktrees/<reponame>/<name>`, alongside editor-created worktrees. Expand `~` with the current runtime's user home and compare both absolute and resolved paths by containment; do not hard-code a macOS, Linux, or Windows home prefix. For the bundled scanner this is `$HOME/.cursor/worktrees` on macOS, Linux, and WSL, and `%USERPROFILE%\.cursor\worktrees` on native Windows. WSL and native Windows have distinct runtime homes; use an explicit absolute compatibility override for a known cross-runtime path instead of guessing `%APPDATA%`, a drive, or a Cursor installation directory. Native `pathlib` comparison handles Windows drive letters, separators, case-insensitivity, spaces, and resolved junction/symlink paths. The scanner reports `managed_harness: "cursor"` for registered paths under the runtime root, including a root reached through a symlink or junction.
 
 Cursor currently documents no managed-root relocation option. Some installed CLI builds expose an undocumented `CURSOR_WORKTREES_ROOT` environment override; as a fail-closed compatibility measure, the scanner recognizes it only when it is present and absolute, and refuses an ambiguous relative value. Do not infer this override when it is absent or present it as a supported public API.
 
@@ -77,7 +77,7 @@ Cursor 3.5 and later periodically rediscovers the machine worktree root and can 
 
 Age, discovery timestamps, cleanup eligibility, cleanup interval, and the machine-wide count cap are storage-policy signals, not evidence that a task is inactive. If Cursor concurrently removes or changes a selected worktree, the cleanup plan's normal snapshot revalidation must abort.
 
-Official references: [worktrees](https://cursor.com/docs/configuration/worktrees), [Cursor CLI](https://cursor.com/docs/cli/using), [subagents](https://cursor.com/docs/subagents), [Python SDK](https://cursor.com/docs/sdk/python), [hooks](https://cursor.com/docs/hooks), and [self-hosted Cloud Agents](https://cursor.com/docs/cloud-agent/self-hosted).
+Official references: [worktrees](https://cursor.com/docs/configuration/worktrees), [Cursor CLI worktrees](https://cursor.com/docs/cli/using), [native Windows CLI installation](https://cursor.com/docs/cli/installation), [platform-specific CLI configuration](https://cursor.com/docs/cli/reference/configuration), [subagents](https://cursor.com/docs/subagents), [Python SDK](https://cursor.com/docs/sdk/python), [hooks](https://cursor.com/docs/hooks), and [self-hosted Cloud Agents](https://cursor.com/docs/cloud-agent/self-hosted).
 
 ## Other harnesses
 

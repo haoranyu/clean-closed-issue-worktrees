@@ -99,4 +99,4 @@ Never treat `prunable` as permission. Report it separately. The bundled script i
 
 ## Publication and portability
 
-The bundled script requires Python 3.9+ and Git. Provider and harness access remains outside the script so the same skill can run in compatible agent environments without reading credential stores or browser cookies.
+The bundled script requires Python 3.9+ and Git. Runtime-native `pathlib` handling covers macOS, Linux, WSL, and native Windows paths without changing the editor-neutral cleanup policy. Provider and harness access remains outside the script so the same skill can run in compatible agent environments without reading credential stores or browser cookies.

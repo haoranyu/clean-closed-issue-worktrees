@@ -69,12 +69,24 @@ plugin metadata. Cursor is one compatible Agent Plugin host. Both manifests
 discover the same `skills/clean-closed-issue-worktrees` payload; no skill logic
 is duplicated.
 
-For local Cursor testing, clone the repository and link it into Cursor's local
-plugin directory, then reload Cursor:
+For local Cursor testing, clone the repository and place it in Cursor's local
+plugin directory, then reload Cursor. Preserve the live-link workflow on macOS
+or Linux:
 
 ```bash
 ln -s /absolute/path/to/clean-closed-issue-worktrees \
   ~/.cursor/plugins/local/clean-closed-issue-worktrees
+```
+
+On native Windows PowerShell, copy the plugin to the same documented `~`
+location under `$env:USERPROFILE`:
+
+```powershell
+New-Item -ItemType Directory -Force `
+  "$env:USERPROFILE\.cursor\plugins\local" | Out-Null
+Copy-Item -Recurse -Force `
+  "C:\absolute\path\to\clean-closed-issue-worktrees" `
+  "$env:USERPROFILE\.cursor\plugins\local\clean-closed-issue-worktrees"
 ```
 
 For local Claude Code testing:
@@ -102,12 +114,12 @@ Then ask the agent to use `$clean-closed-issue-worktrees` with a local repositor
 | Generic local Git worktrees | The engine can inspect and remove any Git-registered worktree, regardless of creator; generic Git compatibility alone does not prove task inactivity |
 | Managed-root provenance | Root recognition is adapter-specific. Cursor's documented local root is the current built-in path adapter; worktrees from other editors remain inspectable, authoritative exact-path ownership is used when available, and missing state remains **Needs review** |
 | Known task-state mappings (non-exhaustive) | Codex, Claude Code, and Cursor have documented ownership and state mappings; named integrations are not an allowlist, and unavailable authoritative state remains **Needs review** |
-| Cursor local worktrees | Installable as an Agent Skill or Agent Plugin; Agents Window, IDE `/worktree`, `/best-of-n`, and CLI `--worktree` are covered through the documented `~/.cursor/worktrees` root and an explicit absolute `CURSOR_WORKTREES_ROOT` compatibility override when present. An isolated local subagent is covered when a recognized root contains it or authoritative metadata maps its exact path; otherwise state fails closed to **Needs review** |
+| Cursor local worktrees | Installable as an Agent Skill or Agent Plugin; Agents Window, IDE `/worktree`, `/best-of-n`, and CLI `--worktree` are covered through the documented `~/.cursor/worktrees` root. The scanner resolves `~` through the runtime home: `$HOME/.cursor/worktrees` on macOS, Linux, and WSL, and `%USERPROFILE%\.cursor\worktrees` on native Windows. An explicit absolute `CURSOR_WORKTREES_ROOT` compatibility override can bridge a known cross-runtime path; the scanner never guesses `%APPDATA%` or an installation directory. An isolated local subagent is covered when a recognized root contains it or authoritative metadata maps its exact path; otherwise state fails closed to **Needs review** |
 | Remote Cursor Cloud Agents | Cursor-hosted and `/in-cloud` VM clones are out of local cleanup scope; an exact locally registered self-hosted/Remote Control checkout still follows normal fail-closed ownership rules |
 | Codex and Claude Code | Installable with `gh skill`; their existing task/session mapping rules are unchanged |
 | Other Agent Skills clients | Standard `SKILL.md` payload; install manually or with a compatible skill installer |
 | Local runtime | Git and Python 3.9+ |
-| Script/package CI | Ubuntu, macOS, and Windows; live host task/session integrations are not exercised in CI |
+| Script/package CI | Ubuntu, macOS, and native Windows. CI exercises default-home and explicit-root Cursor detection plus the original generic scan/plan/remove flow; live host task/session integrations are not exercised in CI |
 
 ## Provider routing
 
@@ -140,6 +152,18 @@ python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py scan \
   --stdout none
 ```
 
+The equivalent native Windows PowerShell scan uses a Windows repository path
+and the system temporary directory:
+
+```powershell
+py -3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py scan `
+  --repo "C:\path\to\repository" `
+  --baseline upstream/main `
+  --json-out "$env:TEMP\worktree-scan.json" `
+  --markdown-out "$env:TEMP\worktree-scan.md" `
+  --stdout none
+```
+
 After provider verification and user review, the agent creates a normalized selection in a temporary directory:
 
 ```bash
@@ -149,12 +173,26 @@ python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py create-p
   --output /tmp/plan.json
 ```
 
+```powershell
+py -3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py create-plan `
+  --repo "C:\path\to\repository" `
+  --selection "$env:TEMP\selection.json" `
+  --output "$env:TEMP\plan.json"
+```
+
 After the user confirms that exact plan:
 
 ```bash
 python3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py execute \
   --plan /tmp/plan.json \
   --confirm-plan <plan-id> \
+  --delete-plan-on-success
+```
+
+```powershell
+py -3 skills/clean-closed-issue-worktrees/scripts/worktree_cleanup.py execute `
+  --plan "$env:TEMP\plan.json" `
+  --confirm-plan EXACT_PLAN_ID `
   --delete-plan-on-success
 ```
 

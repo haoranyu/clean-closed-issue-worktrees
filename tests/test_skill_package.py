@@ -108,9 +108,24 @@ class SkillPackageTests(unittest.TestCase):
         self.assertIn("current host", harness)
         self.assertIn("Cursor-hosted Cloud Agents", harness)
         self.assertIn("Cursor 3.5", harness)
+        self.assertIn(r"%USERPROFILE%\.cursor\worktrees", harness)
+        self.assertIn("native Windows CLI installation", harness)
+        self.assertIn("original selection format", harness)
         self.assertIn("harness-specific mapping", skill)
         self.assertIn("Generic local Git worktrees", readme)
         self.assertIn("Cursor local worktrees", readme)
+        self.assertIn(r"%USERPROFILE%\.cursor\worktrees", readme)
+        self.assertIn("native Windows PowerShell", readme)
+
+    def test_original_selection_and_plan_compatibility_is_documented(self) -> None:
+        evidence = (SKILL_ROOT / "references" / "evidence-schema.md").read_text(
+            encoding="utf-8"
+        )
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("original Codex/Claude selection format stays valid", evidence)
+        self.assertIn("also accepts a schema-1 plan", evidence)
+        self.assertIn("original generic scan/plan/remove flow", readme)
 
 
 if __name__ == "__main__":

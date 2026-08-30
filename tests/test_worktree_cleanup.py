@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import subprocess
 import tempfile
 import unittest
@@ -100,6 +100,11 @@ def selection(path: Path, **overrides: object) -> dict:
 
 class WorktreeCleanupTests(unittest.TestCase):
     def setUp(self) -> None:
+        cursor_environment = mock.patch.dict(
+            cleanup.os.environ, {"CURSOR_WORKTREES_ROOT": ""}
+        )
+        cursor_environment.start()
+        self.addCleanup(cursor_environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.repo = RepositoryFixture(self.root)
@@ -140,6 +145,7 @@ class WorktreeCleanupTests(unittest.TestCase):
         item = next(value for value in inventory["worktrees"] if value["path"] == str(target.resolve()))
 
         self.assertFalse(item["dirty"])
+        self.assertIsNone(item["managed_harness"])
         self.assertEqual(item["issue_evidence"]["branch_ids"], [123])
         self.assertIn("node_modules/", item["ignored"]["regenerable"])
         self.assertIn(".env.local", item["ignored"]["sensitive"])
@@ -196,6 +202,7 @@ class WorktreeCleanupTests(unittest.TestCase):
     def test_execute_removes_worktree_and_keeps_branch(self) -> None:
         target = self.repo.add_branch_worktree("123-keep-branch", "remove me")
         plan_path, plan = self.create_plan(selection(target))
+        self.assertIsNone(plan["targets"][0]["managed_harness"])
 
         result, code = cleanup.execute_plan(plan_path, plan["plan_id"], None, True)
 
@@ -222,14 +229,44 @@ class WorktreeCleanupTests(unittest.TestCase):
             cleanup.execute_plan(plan_path, "wrong-plan-id", None, False)
         self.assertTrue(target.exists())
 
-    def test_execute_rejects_previous_plan_schema(self) -> None:
+    def test_execute_accepts_previous_plan_schema_after_full_revalidation(self) -> None:
         target = self.repo.add_branch_worktree("123-old-plan", "old-plan-wt")
-        plan_path, plan = self.create_plan(selection(target))
+        value = selection(target)
+        value["targets"][0]["evidence"]["harness_state"] = "inactive"
+        plan_path, plan = self.create_plan(value)
         plan["schema_version"] = cleanup.PLAN_SCHEMA_VERSION - 1
+        del plan["targets"][0]["managed_harness"]
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
 
-        with self.assertRaisesRegex(cleanup.CleanupError, "Unsupported plan schema"):
-            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+        result, code = cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(result["status"], "completed")
+        self.assertFalse(target.exists())
+
+    def test_execute_rejects_unsupported_plan_schema(self) -> None:
+        target = self.repo.add_branch_worktree("123-unsupported-plan", "unsupported-plan-wt")
+
+        for schema_version in (0, True):
+            with self.subTest(schema_version=schema_version):
+                plan_path, plan = self.create_plan(selection(target))
+                plan["schema_version"] = schema_version
+                plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+                with self.assertRaisesRegex(cleanup.CleanupError, "Unsupported plan schema"):
+                    cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+        self.assertTrue(target.exists())
+
+    def test_previous_plan_schema_refuses_newly_recognized_cursor_ownership(self) -> None:
+        target = self.repo.add_branch_worktree("123-old-cursor-plan", "old-cursor-plan-wt")
+        plan_path, plan = self.create_plan(selection(target))
+        plan["schema_version"] = cleanup.PLAN_SCHEMA_VERSION - 1
+        del plan["targets"][0]["managed_harness"]
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with mock.patch.object(cleanup, "cursor_worktree_roots", return_value=(self.root,)):
+            with self.assertRaisesRegex(cleanup.CleanupError, "ownership changed"):
+                cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
         self.assertTrue(target.exists())
 
     def test_execute_revalidates_harness_evidence(self) -> None:
@@ -252,17 +289,6 @@ class WorktreeCleanupTests(unittest.TestCase):
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
 
         with self.assertRaisesRegex(cleanup.CleanupError, "normalized harness identifier"):
-            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
-        self.assertTrue(target.exists())
-
-    def test_execute_rejects_ownerless_inactive_harness_evidence(self) -> None:
-        target = self.repo.add_branch_worktree("123-tampered-owner", "tampered-owner-wt")
-        plan_path, plan = self.create_plan(selection(target))
-        plan["targets"][0]["evidence"]["harness_state"] = "inactive"
-        plan["targets"][0]["risk_acknowledged"] = True
-        plan_path.write_text(json.dumps(plan), encoding="utf-8")
-
-        with self.assertRaisesRegex(cleanup.CleanupError, "requires managed-harness"):
             cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
         self.assertTrue(target.exists())
 
@@ -409,7 +435,7 @@ class WorktreeCleanupTests(unittest.TestCase):
     def test_active_harness_is_always_refused(self) -> None:
         target = self.repo.add_branch_worktree("123-active", "active-wt")
 
-        for harness_name in ("cursor", "example-harness"):
+        for harness_name in ("codex", "claude-code", "cursor", "example-harness"):
             with self.subTest(harness_name=harness_name):
                 value = selection(target)
                 value["targets"][0]["risk_acknowledged"] = True
@@ -429,7 +455,7 @@ class WorktreeCleanupTests(unittest.TestCase):
         )
         self.assertIsNone(item["managed_harness"])
 
-        for harness_name in ("cursor", "example-harness"):
+        for harness_name in ("codex", "claude-code", "cursor", "example-harness"):
             with self.subTest(harness_name=harness_name):
                 value = selection(target)
                 value["targets"][0]["evidence"]["harness_name"] = harness_name
@@ -441,27 +467,33 @@ class WorktreeCleanupTests(unittest.TestCase):
                     plan["targets"][0]["evidence"]["harness_name"], harness_name
                 )
 
-    def test_ownerless_inactive_harness_is_refused(self) -> None:
-        target = self.repo.add_branch_worktree("123-ownerless", "ownerless-wt")
+    def test_legacy_inactive_evidence_without_harness_name_remains_eligible(self) -> None:
+        target = self.repo.add_branch_worktree("123-legacy-inactive", "legacy-inactive-wt")
         value = selection(target)
-        value["targets"][0]["risk_acknowledged"] = True
         value["targets"][0]["evidence"]["harness_state"] = "inactive"
 
-        with self.assertRaisesRegex(cleanup.CleanupError, "requires managed-harness"):
-            self.create_plan(value)
+        plan_path, plan = self.create_plan(value)
+        result, code = cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(result["status"], "completed")
+        self.assertFalse(target.exists())
 
     def test_unknown_named_harness_requires_review(self) -> None:
         target = self.repo.add_branch_worktree("123-generic-unknown", "generic-unknown-wt")
-        value = selection(target)
-        value["targets"][0]["evidence"]["harness_name"] = "example-harness"
-        value["targets"][0]["evidence"]["harness_state"] = "unknown"
 
-        with self.assertRaisesRegex(cleanup.CleanupError, "not proven inactive"):
-            self.create_plan(value)
+        for harness_name in ("codex", "claude-code", "cursor", "example-harness"):
+            with self.subTest(harness_name=harness_name):
+                value = selection(target)
+                value["targets"][0]["evidence"]["harness_name"] = harness_name
+                value["targets"][0]["evidence"]["harness_state"] = "unknown"
 
-        value["targets"][0]["risk_acknowledged"] = True
-        _, plan = self.create_plan(value)
-        self.assertTrue(plan["targets"][0]["risk_acknowledged"])
+                with self.assertRaisesRegex(cleanup.CleanupError, "not proven inactive"):
+                    self.create_plan(value)
+
+                value["targets"][0]["risk_acknowledged"] = True
+                _, plan = self.create_plan(value)
+                self.assertTrue(plan["targets"][0]["risk_acknowledged"])
 
     def test_invalid_harness_state_is_refused_for_any_named_harness(self) -> None:
         target = self.repo.add_branch_worktree("123-invalid-state", "invalid-state-wt")
@@ -519,6 +551,47 @@ class WorktreeCleanupTests(unittest.TestCase):
         self.assertEqual(item["managed_harness"], "cursor")
         self.assertIn("| cursor |", cleanup.scan_markdown(inventory))
 
+    def test_scan_marks_default_cursor_root_from_runtime_home(self) -> None:
+        cursor_root, target = self.add_cursor_worktree(
+            "123-default-cursor", "default cursor wt"
+        )
+        runtime_home = cursor_root.parents[1]
+
+        with mock.patch.object(cleanup.Path, "home", return_value=runtime_home):
+            with mock.patch.dict(
+                cleanup.os.environ, {"CURSOR_WORKTREES_ROOT": ""}
+            ):
+                roots = cleanup.cursor_worktree_roots()
+                inventory = cleanup.scan_repository(self.repo.main, baseline="main")
+
+        item = next(
+            value for value in inventory["worktrees"] if value["path"] == str(target.resolve())
+        )
+        self.assertEqual(roots[0], cursor_root)
+        self.assertEqual(item["managed_harness"], "cursor")
+
+    def test_windows_path_containment_is_case_insensitive_and_drive_aware(self) -> None:
+        root = PureWindowsPath(r"C:\Users\Alice\.cursor\worktrees")
+
+        self.assertTrue(
+            cleanup.is_within(
+                PureWindowsPath(r"c:\users\ALICE\.CURSOR\worktrees\repo\wt"),
+                root,
+            )
+        )
+        self.assertFalse(
+            cleanup.is_within(
+                PureWindowsPath(r"C:\Users\Alice\.cursor\worktrees-old\repo"),
+                root,
+            )
+        )
+        self.assertFalse(
+            cleanup.is_within(
+                PureWindowsPath(r"D:\Users\Alice\.cursor\worktrees\repo"),
+                root,
+            )
+        )
+
     def test_scanner_managed_path_can_use_inactive_without_harness_name(self) -> None:
         cursor_root, target = self.add_cursor_worktree(
             "123-scanner-owner", "scanner-owner-wt"
@@ -532,20 +605,39 @@ class WorktreeCleanupTests(unittest.TestCase):
         self.assertEqual(plan["targets"][0]["managed_harness"], "cursor")
         self.assertNotIn("harness_name", plan["targets"][0]["evidence"])
 
-    def test_cursor_worktree_roots_include_absolute_cli_override(self) -> None:
+    def test_scan_marks_absolute_cursor_root_override(self) -> None:
         configured = self.root / "configured-cursor-worktrees"
+        repository_root = configured / "example-repo"
+        repository_root.mkdir(parents=True)
+        target = repository_root / "configured cursor wt"
+        command("git", "branch", "123-configured-cursor", cwd=self.repo.main)
+        command(
+            "git",
+            "worktree",
+            "add",
+            str(target),
+            "123-configured-cursor",
+            cwd=self.repo.main,
+        )
 
         with mock.patch.dict(
             cleanup.os.environ, {"CURSOR_WORKTREES_ROOT": str(configured)}
         ):
-            roots = cleanup.cursor_worktree_roots()
+            inventory = cleanup.scan_repository(self.repo.main, baseline="main")
 
-        self.assertIn(configured, roots)
+        item = next(
+            value for value in inventory["worktrees"] if value["path"] == str(target.resolve())
+        )
+        self.assertEqual(item["managed_harness"], "cursor")
 
     def test_relative_cursor_worktree_root_override_fails_closed(self) -> None:
-        with mock.patch.dict(cleanup.os.environ, {"CURSOR_WORKTREES_ROOT": "relative-root"}):
-            with self.assertRaisesRegex(cleanup.CleanupError, "must be absolute"):
-                cleanup.cursor_worktree_roots()
+        for configured in ("relative-root", r"C:relative-root", r"\root-relative"):
+            with self.subTest(configured=configured):
+                with mock.patch.dict(
+                    cleanup.os.environ, {"CURSOR_WORKTREES_ROOT": configured}
+                ):
+                    with self.assertRaisesRegex(cleanup.CleanupError, "must be absolute"):
+                        cleanup.cursor_worktree_roots()
 
     def test_cursor_managed_path_cannot_be_falsely_unowned(self) -> None:
         cursor_root, target = self.add_cursor_worktree("123-false-unowned", "false-unowned-wt")

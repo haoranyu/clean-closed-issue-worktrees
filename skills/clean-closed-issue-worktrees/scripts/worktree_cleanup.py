@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 SCHEMA_VERSION = 2
 PLAN_SCHEMA_VERSION = 2
+SUPPORTED_PLAN_SCHEMA_VERSIONS = frozenset({1, PLAN_SCHEMA_VERSION})
 ALLOWED_HARNESS_STATES = frozenset({"active", "inactive", "not_managed", "unknown"})
 HARNESS_IDENTIFIER_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 REGENERABLE_IGNORED_NAMES = {
@@ -128,7 +129,7 @@ def is_within(path: Path, parent: Path) -> bool:
 
 
 def cursor_worktree_roots() -> Tuple[Path, ...]:
-    """Return recognized local Cursor worktree roots for this environment."""
+    """Return roots relative to the runtime home on Unix, WSL, or Windows."""
 
     roots = [Path.home() / ".cursor" / "worktrees"]
     configured = os.environ.get("CURSOR_WORKTREES_ROOT")
@@ -595,10 +596,6 @@ def validate_selection_evidence(
     has_harness_owner = managed_harness is not None or harness_name is not None
     if harness == "not_managed" and has_harness_owner:
         raise CleanupError("A harness-managed worktree cannot be classified as not_managed")
-    if harness == "inactive" and not has_harness_owner:
-        raise CleanupError(
-            "An inactive harness state requires managed-harness path provenance or harness_name"
-        )
     if harness == "active":
         raise CleanupError("An active harness task may still be using this worktree")
     if harness not in {"inactive", "not_managed"} and not risk_acknowledged:
@@ -827,7 +824,12 @@ def execute_plan(
     delete_plan_on_success: bool,
 ) -> Tuple[Dict[str, Any], int]:
     plan = load_json(plan_path)
-    if plan.get("schema_version") != PLAN_SCHEMA_VERSION:
+    plan_schema_version = plan.get("schema_version")
+    if (
+        not isinstance(plan_schema_version, int)
+        or isinstance(plan_schema_version, bool)
+        or plan_schema_version not in SUPPORTED_PLAN_SCHEMA_VERSIONS
+    ):
         raise CleanupError("Unsupported plan schema version")
     if confirm_plan != plan.get("plan_id"):
         raise CleanupError("--confirm-plan must exactly match the plan_id shown to the user")
