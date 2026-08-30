@@ -2,7 +2,7 @@
 
 A safety-first agent skill for auditing and removing Git worktrees associated with closed GitHub or GitLab issues.
 
-It is designed for Codex, Claude Code, Cursor, and other skill-capable agent harnesses. Provider and live-task access stay in the agent layer, while a deterministic Python script owns local Git inspection, recognized Cursor-root detection, snapshot validation, backup refs, and removal.
+It works with Git-registered worktrees regardless of editor, agent harness, or creator. Provider and live-task integrations stay in the agent layer, while a deterministic Python script owns local Git inspection, managed-root provenance, snapshot validation, backup refs, and removal.
 
 ## Why this exists
 
@@ -22,7 +22,7 @@ The default recommendation is to remove worktrees while retaining local branches
 - Only closed ordinary issues or merged PRs/MRs qualify.
 - Dirty, locked, current, main, active-task, and broad paths are refused.
 - Unknown harness state and ambiguous issue mapping are review conditions.
-- Scanner-recognized Cursor roots cannot be mislabeled as unmanaged; other harness roots follow the same fail-closed agent workflow.
+- Paths recognized as harness-managed cannot be mislabeled as unmanaged; unavailable task state fails closed to **Needs review**.
 - Ignored `.env`, database, key, credential, and unknown paths require explicit review.
 - Detached orphan commits can be protected with deterministic backup branches.
 - Branch deletion uses only `git branch -d`; force deletion is not implemented.
@@ -64,9 +64,10 @@ npx skills add haoranyu/clean-closed-issue-worktrees \
 
 ### Plugin marketplaces
 
-This repository is also packaged as a portable Agent Plugin for Cursor and as
-a Claude Code plugin. Both manifests discover the same
-`skills/clean-closed-issue-worktrees` payload; no skill logic is duplicated.
+This repository provides a portable Agent Plugin manifest and Claude Code
+plugin metadata. Cursor is one compatible Agent Plugin host. Both manifests
+discover the same `skills/clean-closed-issue-worktrees` payload; no skill logic
+is duplicated.
 
 For local Cursor testing, clone the repository and link it into Cursor's local
 plugin directory, then reload Cursor:
@@ -99,7 +100,8 @@ Then ask the agent to use `$clean-closed-issue-worktrees` with a local repositor
 | --- | --- |
 | GitHub, GitLab issue and PR/MR state | Supported through the agent's provider skill, MCP, CLI, API, or browser fallback |
 | Generic local Git worktrees | The engine can inspect and remove any Git-registered worktree, regardless of creator; generic Git compatibility alone does not prove task inactivity |
-| First-class harness-state integration | Codex, Claude Code, and Cursor have explicit ownership and state mappings; when authoritative host tooling is unavailable, recognized managed paths remain **Needs review** |
+| Managed-root provenance | Root recognition is adapter-specific. Cursor's documented local root is the current built-in path adapter; worktrees from other editors remain inspectable, authoritative exact-path ownership is used when available, and missing state remains **Needs review** |
+| Known task-state mappings (non-exhaustive) | Codex, Claude Code, and Cursor have documented ownership and state mappings; named integrations are not an allowlist, and unavailable authoritative state remains **Needs review** |
 | Cursor local worktrees | Installable as an Agent Skill or Agent Plugin; Agents Window, IDE `/worktree`, `/best-of-n`, and CLI `--worktree` are covered through the documented `~/.cursor/worktrees` root and an explicit absolute `CURSOR_WORKTREES_ROOT` compatibility override when present. An isolated local subagent is covered when a recognized root contains it or authoritative metadata maps its exact path; otherwise state fails closed to **Needs review** |
 | Remote Cursor Cloud Agents | Cursor-hosted and `/in-cloud` VM clones are out of local cleanup scope; an exact locally registered self-hosted/Remote Control checkout still follows normal fail-closed ownership rules |
 | Codex and Claude Code | Installable with `gh skill`; their existing task/session mapping rules are unchanged |

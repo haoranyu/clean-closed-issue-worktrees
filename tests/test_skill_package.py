@@ -68,7 +68,22 @@ class SkillPackageTests(unittest.TestCase):
         metadata = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn("$clean-closed-issue-worktrees", metadata)
 
-    def test_cursor_harness_contract_is_documented(self) -> None:
+    def test_harness_contract_is_editor_agnostic(self) -> None:
+        harness = (SKILL_ROOT / "references" / "harness-detection.md").read_text(
+            encoding="utf-8"
+        )
+        skill = SKILL_FILE.read_text(encoding="utf-8")
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("cleanup policy is editor-neutral", harness)
+        self.assertIn("adapters, not an allowlist", harness)
+        self.assertIn("Generic Git-registered worktrees remain supported", harness)
+        self.assertIn("every scanner-recognized", skill)
+        self.assertIn("regardless of editor, agent harness, or creator", readme)
+        self.assertIn("Managed-root provenance", readme)
+        self.assertIn("Known task-state mappings (non-exhaustive)", readme)
+
+    def test_cursor_adapter_contract_is_documented(self) -> None:
         harness = (SKILL_ROOT / "references" / "harness-detection.md").read_text(
             encoding="utf-8"
         )
@@ -93,9 +108,9 @@ class SkillPackageTests(unittest.TestCase):
         self.assertIn("current host", harness)
         self.assertIn("Cursor-hosted Cloud Agents", harness)
         self.assertIn("Cursor 3.5", harness)
-        self.assertIn("Cursor", skill)
+        self.assertIn("harness-specific mapping", skill)
         self.assertIn("Generic local Git worktrees", readme)
-        self.assertIn("First-class harness-state integration", readme)
+        self.assertIn("Cursor local worktrees", readme)
 
 
 if __name__ == "__main__":

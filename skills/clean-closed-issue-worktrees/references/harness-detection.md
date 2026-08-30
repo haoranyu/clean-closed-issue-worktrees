@@ -1,6 +1,6 @@
 # Agent harness detection
 
-Read this reference when any worktree appears to be managed by Codex, Claude Code, Cursor, or another agent harness.
+Read this reference whenever a worktree may be managed by an agent harness. Apply the general rules first, then every available harness-specific mapping.
 
 ## General rule
 
@@ -14,13 +14,19 @@ An issue being closed does not prove that the worktree's current agent task is c
 Do not use process names, `lsof`, modification time, terminal silence, or a clean Git status as the sole proof that a task ended.
 Never label a path under a recognized harness-managed root as `not_managed`. Harness-specific rules below may be stricter than these general defaults.
 
+## Integration model
+
+The cleanup policy is editor-neutral. A documented root adapter may attach `managed_harness` path provenance, while the agent layer supplies an exact-path `harness_name` and aggregate `harness_state`. These normalized fields form the interface to the shared eligibility and deletion policy.
+
+Named sections below are adapters, not an allowlist. A new editor or harness can add stable-root recognition, authoritative task-state mapping, or both without changing the core cleanup rules. Generic Git-registered worktrees remain supported even when no named adapter exists.
+
 ## Codex
 
 When Codex thread/task tools are available:
 
 1. List tasks and map each exact `cwd` to the registered worktree path.
 2. Treat `active`, running, waiting, or needs-attention tasks as active.
-3. Treat archived/completed tasks as inactive.
+3. Treat archived/completed tasks as inactive only when the evidence also identifies the owner through scanner-derived `managed_harness` path provenance or a normalized `harness_name`.
 4. Treat `notLoaded`, idle-but-resumable, missing pagination coverage, or ambiguous duplicate tasks as unknown unless the user confirms completion.
 5. Never remove the calling task's own worktree.
 
@@ -75,4 +81,4 @@ Official references: [worktrees](https://cursor.com/docs/configuration/worktrees
 
 ## Other harnesses
 
-Recognize harness-managed paths and metadata when available, but do not invent status mappings. Unknown harness ownership is a review condition, not a reason to fall back to process guessing.
+Recognize harness-managed paths and metadata when available, but do not invent status mappings. The named integrations above are non-exhaustive. For an unlisted editor or harness, use authoritative exact-path metadata when available and classify uncertain ownership as `unknown`; never fall back to process guessing.

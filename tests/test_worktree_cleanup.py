@@ -163,6 +163,36 @@ class WorktreeCleanupTests(unittest.TestCase):
         with self.assertRaisesRegex(cleanup.CleanupError, "unapproved ignored"):
             self.create_plan(selection(target))
 
+    def test_selection_approval_fields_require_json_booleans(self) -> None:
+        target = self.repo.add_branch_worktree("123-approval-types", "approval-types-wt")
+
+        for field in ("risk_acknowledged", "ignored_paths_approved"):
+            for invalid in ("false", 1):
+                with self.subTest(field=field, invalid=invalid):
+                    value = selection(target)
+                    value["targets"][0][field] = invalid
+                    with self.assertRaisesRegex(
+                        cleanup.CleanupError, f"{field} must be a JSON boolean"
+                    ):
+                        self.create_plan(value)
+
+        for invalid in ("false", 1):
+            with self.subTest(field="backup_orphans", invalid=invalid):
+                value = selection(target)
+                value["backup_orphans"] = invalid
+                with self.assertRaisesRegex(
+                    cleanup.CleanupError, "backup_orphans must be a JSON boolean"
+                ):
+                    self.create_plan(value)
+
+    def test_selection_evidence_must_be_an_object(self) -> None:
+        target = self.repo.add_branch_worktree("123-null-evidence", "null-evidence-wt")
+        value = selection(target)
+        value["targets"][0]["evidence"] = None
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "evidence must be a JSON object"):
+            self.create_plan(value)
+
     def test_execute_removes_worktree_and_keeps_branch(self) -> None:
         target = self.repo.add_branch_worktree("123-keep-branch", "remove me")
         plan_path, plan = self.create_plan(selection(target))
@@ -190,6 +220,78 @@ class WorktreeCleanupTests(unittest.TestCase):
 
         with self.assertRaisesRegex(cleanup.CleanupError, "exactly match"):
             cleanup.execute_plan(plan_path, "wrong-plan-id", None, False)
+        self.assertTrue(target.exists())
+
+    def test_execute_rejects_previous_plan_schema(self) -> None:
+        target = self.repo.add_branch_worktree("123-old-plan", "old-plan-wt")
+        plan_path, plan = self.create_plan(selection(target))
+        plan["schema_version"] = cleanup.PLAN_SCHEMA_VERSION - 1
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "Unsupported plan schema"):
+            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+        self.assertTrue(target.exists())
+
+    def test_execute_revalidates_harness_evidence(self) -> None:
+        target = self.repo.add_branch_worktree("123-tampered-plan", "tampered-plan-wt")
+        plan_path, plan = self.create_plan(selection(target))
+        plan["targets"][0]["evidence"]["harness_name"] = "example-harness"
+        plan["targets"][0]["evidence"]["harness_state"] = "paused"
+        plan["targets"][0]["risk_acknowledged"] = True
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "Unsupported harness_state"):
+            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+        self.assertTrue(target.exists())
+
+    def test_execute_revalidates_harness_identifier(self) -> None:
+        target = self.repo.add_branch_worktree("123-tampered-name", "tampered-name-wt")
+        plan_path, plan = self.create_plan(selection(target))
+        plan["targets"][0]["evidence"]["harness_name"] = "Example Harness"
+        plan["targets"][0]["evidence"]["harness_state"] = "inactive"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "normalized harness identifier"):
+            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+        self.assertTrue(target.exists())
+
+    def test_execute_rejects_ownerless_inactive_harness_evidence(self) -> None:
+        target = self.repo.add_branch_worktree("123-tampered-owner", "tampered-owner-wt")
+        plan_path, plan = self.create_plan(selection(target))
+        plan["targets"][0]["evidence"]["harness_state"] = "inactive"
+        plan["targets"][0]["risk_acknowledged"] = True
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "requires managed-harness"):
+            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+        self.assertTrue(target.exists())
+
+    def test_execute_rejects_non_boolean_plan_approvals(self) -> None:
+        target = self.repo.add_branch_worktree("123-plan-approvals", "plan-approvals-wt")
+
+        for field in ("risk_acknowledged", "backup_orphans"):
+            with self.subTest(field=field):
+                plan_path, plan = self.create_plan(selection(target))
+                if field == "risk_acknowledged":
+                    plan["targets"][0][field] = "false"
+                else:
+                    plan[field] = "false"
+                plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+                with self.assertRaisesRegex(
+                    cleanup.CleanupError, f"{field} must be a JSON boolean"
+                ):
+                    cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+                self.assertTrue(target.exists())
+
+    def test_execute_rejects_non_object_plan_evidence(self) -> None:
+        target = self.repo.add_branch_worktree("123-plan-evidence", "plan-evidence-wt")
+        plan_path, plan = self.create_plan(selection(target))
+        plan["targets"][0]["evidence"] = None
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "evidence must be a JSON object"):
+            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
         self.assertTrue(target.exists())
 
     def test_batch_preflight_failure_removes_nothing(self) -> None:
@@ -304,25 +406,92 @@ class WorktreeCleanupTests(unittest.TestCase):
         with self.assertRaisesRegex(cleanup.CleanupError, "not eligible"):
             self.create_plan(value)
 
-    def test_active_cursor_harness_is_always_refused(self) -> None:
+    def test_active_harness_is_always_refused(self) -> None:
         target = self.repo.add_branch_worktree("123-active", "active-wt")
+
+        for harness_name in ("cursor", "example-harness"):
+            with self.subTest(harness_name=harness_name):
+                value = selection(target)
+                value["targets"][0]["risk_acknowledged"] = True
+                value["targets"][0]["evidence"]["harness_name"] = harness_name
+                value["targets"][0]["evidence"]["harness_state"] = "active"
+
+                with self.assertRaisesRegex(cleanup.CleanupError, "active harness"):
+                    self.create_plan(value)
+
+    def test_inactive_harness_is_eligible(self) -> None:
+        target = self.repo.add_branch_worktree("123-inactive", "inactive-wt")
+        inventory = cleanup.scan_repository(self.repo.main, baseline="main")
+        item = next(
+            value
+            for value in inventory["worktrees"]
+            if value["path"] == str(target.resolve())
+        )
+        self.assertIsNone(item["managed_harness"])
+
+        for harness_name in ("cursor", "example-harness"):
+            with self.subTest(harness_name=harness_name):
+                value = selection(target)
+                value["targets"][0]["evidence"]["harness_name"] = harness_name
+                value["targets"][0]["evidence"]["harness_state"] = "inactive"
+
+                _, plan = self.create_plan(value)
+
+                self.assertEqual(
+                    plan["targets"][0]["evidence"]["harness_name"], harness_name
+                )
+
+    def test_ownerless_inactive_harness_is_refused(self) -> None:
+        target = self.repo.add_branch_worktree("123-ownerless", "ownerless-wt")
         value = selection(target)
         value["targets"][0]["risk_acknowledged"] = True
-        value["targets"][0]["evidence"]["harness_name"] = "cursor"
-        value["targets"][0]["evidence"]["harness_state"] = "active"
-
-        with self.assertRaisesRegex(cleanup.CleanupError, "active harness"):
-            self.create_plan(value)
-
-    def test_inactive_cursor_harness_is_eligible(self) -> None:
-        target = self.repo.add_branch_worktree("123-inactive", "inactive-wt")
-        value = selection(target)
-        value["targets"][0]["evidence"]["harness_name"] = "cursor"
         value["targets"][0]["evidence"]["harness_state"] = "inactive"
 
-        _, plan = self.create_plan(value)
+        with self.assertRaisesRegex(cleanup.CleanupError, "requires managed-harness"):
+            self.create_plan(value)
 
-        self.assertEqual(plan["targets"][0]["evidence"]["harness_name"], "cursor")
+    def test_unknown_named_harness_requires_review(self) -> None:
+        target = self.repo.add_branch_worktree("123-generic-unknown", "generic-unknown-wt")
+        value = selection(target)
+        value["targets"][0]["evidence"]["harness_name"] = "example-harness"
+        value["targets"][0]["evidence"]["harness_state"] = "unknown"
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "not proven inactive"):
+            self.create_plan(value)
+
+        value["targets"][0]["risk_acknowledged"] = True
+        _, plan = self.create_plan(value)
+        self.assertTrue(plan["targets"][0]["risk_acknowledged"])
+
+    def test_invalid_harness_state_is_refused_for_any_named_harness(self) -> None:
+        target = self.repo.add_branch_worktree("123-invalid-state", "invalid-state-wt")
+
+        for state in (None, "paused"):
+            with self.subTest(state=state):
+                value = selection(target)
+                value["targets"][0]["risk_acknowledged"] = True
+                value["targets"][0]["evidence"]["harness_name"] = "example-harness"
+                if state is None:
+                    del value["targets"][0]["evidence"]["harness_state"]
+                else:
+                    value["targets"][0]["evidence"]["harness_state"] = state
+
+                with self.assertRaisesRegex(cleanup.CleanupError, "Unsupported harness_state"):
+                    self.create_plan(value)
+
+    def test_invalid_harness_name_is_refused(self) -> None:
+        target = self.repo.add_branch_worktree("123-invalid-name", "invalid-name-wt")
+
+        for harness_name in ("", "Cursor ", "Example Harness"):
+            with self.subTest(harness_name=harness_name):
+                value = selection(target)
+                value["targets"][0]["evidence"]["harness_name"] = harness_name
+                value["targets"][0]["evidence"]["harness_state"] = "inactive"
+
+                with self.assertRaisesRegex(
+                    cleanup.CleanupError, "normalized harness identifier"
+                ):
+                    self.create_plan(value)
 
     def test_unknown_cursor_harness_requires_review(self) -> None:
         cursor_root, target = self.add_cursor_worktree("123-unknown", "unknown-wt")
@@ -349,6 +518,19 @@ class WorktreeCleanupTests(unittest.TestCase):
         )
         self.assertEqual(item["managed_harness"], "cursor")
         self.assertIn("| cursor |", cleanup.scan_markdown(inventory))
+
+    def test_scanner_managed_path_can_use_inactive_without_harness_name(self) -> None:
+        cursor_root, target = self.add_cursor_worktree(
+            "123-scanner-owner", "scanner-owner-wt"
+        )
+        value = selection(target)
+        value["targets"][0]["evidence"]["harness_state"] = "inactive"
+
+        with mock.patch.object(cleanup, "cursor_worktree_roots", return_value=(cursor_root,)):
+            _, plan = self.create_plan(value)
+
+        self.assertEqual(plan["targets"][0]["managed_harness"], "cursor")
+        self.assertNotIn("harness_name", plan["targets"][0]["evidence"])
 
     def test_cursor_worktree_roots_include_absolute_cli_override(self) -> None:
         configured = self.root / "configured-cursor-worktrees"
@@ -389,7 +571,7 @@ class WorktreeCleanupTests(unittest.TestCase):
         target = self.repo.add_branch_worktree("123-named-owner", "named-owner-wt")
         value = selection(target)
         value["targets"][0]["risk_acknowledged"] = True
-        value["targets"][0]["evidence"]["harness_name"] = "Cursor"
+        value["targets"][0]["evidence"]["harness_name"] = "example-harness"
         value["targets"][0]["evidence"]["harness_state"] = "not_managed"
 
         with self.assertRaisesRegex(cleanup.CleanupError, "harness-managed worktree"):

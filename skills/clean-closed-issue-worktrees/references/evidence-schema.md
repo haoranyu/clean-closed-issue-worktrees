@@ -18,7 +18,7 @@ Create this file only in a system temporary directory after the read-only scan. 
       "risk_acknowledged": false,
       "evidence": {
         "mapping_confidence": "strong",
-        "harness_name": "cursor",
+        "harness_name": "example-harness",
         "harness_state": "inactive",
         "issue": {
           "provider": "github",
@@ -44,20 +44,20 @@ Create this file only in a system temporary directory after the read-only scan. 
 
 - `baseline`: the matched remote's verified default or relevant target branch. It is mandatory when `branch_action` is `delete`.
 - `branch_action`: `keep` or `delete`. Ask every time; recommend `keep`.
-- `backup_orphans`: set true only when the user explicitly approved creation of deterministic backup branches for detached orphan commits.
+- `backup_orphans`: a JSON boolean; set `true` only when the user explicitly approved creation of deterministic backup branches for detached orphan commits.
 - `mapping_confidence`: use `strong` only for the evidence types in `SKILL.md`. Other mappings require `risk_acknowledged: true` after the user selects the review item.
-- `harness_name`: optional normalized task owner such as `cursor` when authoritative metadata maps the exact target path. The scanner independently emits `managed_harness` as path provenance for recognized roots. These fields may differ when, for example, a Codex task runs inside a Cursor-created checkout, but `harness_state` must aggregate every known exact-path owner and `not_managed` must respect either field.
-- `harness_state`: `inactive`, `not_managed`, `unknown`, or `active`. `active` is always refused and cannot be bypassed. `inactive` requires explicit task completion/archive with no live exact-path owner. `unknown` requires explicit risk acknowledgement. Use `not_managed` only when the path is outside every recognized harness root and an exhaustive authoritative lookup finds no owner.
-- A path under `~/.cursor/worktrees`, or another path mapped exactly to Cursor by authoritative tooling, is never `not_managed`. With unavailable or incomplete Cursor state, use `unknown`. When several task records map to one exact path, any active or waiting owner makes the combined state `active`; as a conservative skill policy, a resumable exact owner is also promoted to that internal classification even if Cursor calls its latest run idle or finished.
-- `harness_state` is the trusted normalized aggregate supplied by the agent layer. For Cursor it must use records explicitly scoped to the current local host and include Cursor state for every scanner-recognized Cursor path; an inactive record from another harness does not replace a missing Cursor lookup. If runtime/host identity or Cursor coverage cannot be established, the aggregate must be `unknown`.
-- `ignored_paths_approved`: true only after the user reviewed sensitive/unknown ignored paths.
-- `risk_acknowledged`: records an explicit user choice for a reported review condition. It is not a bypass for dirty, active, falsely unowned managed, locked, main/current, scan-anchor, symlinked, or broad paths.
+- `harness_name`: optional normalized exact-path task owner such as `codex`, `claude-code`, `cursor`, or another harness identifier. Identifiers use lowercase alphanumeric tokens separated only by `.`, `_`, or `-`. The scanner independently emits `managed_harness` as path provenance for recognized roots. The two fields may differ when one harness uses a checkout created by another, but `harness_state` must aggregate every known exact-path owner and `not_managed` must respect either field.
+- `harness_state`: `inactive`, `not_managed`, `unknown`, or `active`. `active` is always refused and cannot be bypassed. `inactive` requires explicit task completion/archive with no live exact-path owner, plus either scanner-derived `managed_harness` path provenance or a normalized `harness_name`; an ownerless inactivity assertion is invalid. `unknown` requires explicit risk acknowledgement. Use `not_managed` only when the path is outside every recognized harness root and an exhaustive authoritative lookup finds no owner.
+- A path under any scanner-recognized managed root, or mapped exactly to a harness by authoritative tooling, is never `not_managed`. With unavailable or incomplete task state, use `unknown`. When several task records map to one exact path, aggregate them according to every applicable harness-specific mapping; any active or waiting owner makes the combined state `active`.
+- `harness_state` is the trusted normalized aggregate supplied by the agent layer. It must cover every scanner-recognized path owner and every exact-path task owner within the scope required by each applicable mapping. An inactive record from one harness does not replace a missing lookup for another. If required runtime/host identity or coverage cannot be established, the aggregate must be `unknown`. Cursor specifically requires current-local-host coverage and treats a resumable exact owner as `active`; see [harness-detection.md](harness-detection.md).
+- `ignored_paths_approved`: a JSON boolean; set `true` only after the user reviewed sensitive/unknown ignored paths.
+- `risk_acknowledged`: a JSON boolean recording an explicit user choice for a reported review condition. It is not a bypass for dirty, active, falsely unowned managed, locked, main/current, scan-anchor, symlinked, or broad paths. Quoted strings and numeric lookalikes are invalid approval evidence.
 - `issue.kind`: `issue`, `pull_request`, or `merge_request`. An issue must be closed; a PR/MR must be merged.
 - `linked_change`: optional. A non-merged linked change requires explicit risk acknowledgement and remains a review item.
 
 ## Plan lifecycle
 
-`create-plan` rescans the repository, enforces local invariants, and writes a snapshot containing:
+`create-plan` rescans the repository, enforces local invariants, and writes a schema-versioned snapshot containing:
 
 - repository common-dir identity;
 - resolved baseline identity;
@@ -71,7 +71,7 @@ Create this file only in a system temporary directory after the read-only scan. 
 
 Show the user the exact targets, branch behavior, backup operations, estimate, and `plan_id` before execution. The later execution call must repeat the exact ID with `--confirm-plan`.
 
-`execute` rescans the whole batch before its first write. Any changed path, managed-harness ownership, HEAD, branch, status, ignored-path set, retaining refs, baseline, lock/prunable state, or repository identity refuses the entire batch. Once execution begins, a mid-batch Git failure stops immediately; Git worktree removal is not atomic.
+`execute` rejects plans from older schema versions and rescans the whole batch before its first write. Any changed path, managed-harness ownership, HEAD, branch, status, ignored-path set, retaining refs, baseline, lock/prunable state, evidence validity, or repository identity refuses the entire batch. Once execution begins, a mid-batch Git failure stops immediately; Git worktree removal is not atomic.
 
 ## Branch deletion
 
