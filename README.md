@@ -69,25 +69,49 @@ plugin metadata. Cursor is one compatible Agent Plugin host. Both manifests
 discover the same `skills/clean-closed-issue-worktrees` payload; no skill logic
 is duplicated.
 
-For local Cursor testing, clone the repository and place it in Cursor's local
-plugin directory, then reload Cursor. Preserve the live-link workflow on macOS
-or Linux:
+For local Cursor testing, clone the repository and copy its portable Agent
+Plugin payload into Cursor's local plugin directory, then reload Cursor. Use a
+physical copy: some Cursor versions reject symlinks whose resolved target is
+outside the local plugin directory. The guard below preserves an existing
+installation on macOS or Linux:
 
 ```bash
-ln -s /absolute/path/to/clean-closed-issue-worktrees \
-  ~/.cursor/plugins/local/clean-closed-issue-worktrees
+cursor_plugin_source=/absolute/path/to/clean-closed-issue-worktrees
+cursor_plugin_target="$HOME/.cursor/plugins/local/clean-closed-issue-worktrees"
+
+if [ -e "$cursor_plugin_target" ]; then
+  printf 'Destination already exists: %s\n' "$cursor_plugin_target" >&2
+  exit 1
+fi
+
+mkdir -p "$cursor_plugin_target"
+cp "$cursor_plugin_source/plugin.json" "$cursor_plugin_target/plugin.json"
+cp -R "$cursor_plugin_source/skills" "$cursor_plugin_target/skills"
 ```
 
 On native Windows PowerShell, copy the plugin to the same documented `~`
-location under `$env:USERPROFILE`:
+location under `$env:USERPROFILE`, with the same destination guard:
 
 ```powershell
-New-Item -ItemType Directory -Force `
-  "$env:USERPROFILE\.cursor\plugins\local" | Out-Null
-Copy-Item -Recurse -Force `
-  "C:\absolute\path\to\clean-closed-issue-worktrees" `
+$cursorPluginSource = "C:\absolute\path\to\clean-closed-issue-worktrees"
+$cursorPluginTarget = `
   "$env:USERPROFILE\.cursor\plugins\local\clean-closed-issue-worktrees"
+
+if (Test-Path -LiteralPath $cursorPluginTarget) {
+  throw "Destination already exists: $cursorPluginTarget"
+}
+
+New-Item -ItemType Directory -Force $cursorPluginTarget | Out-Null
+Copy-Item -LiteralPath "$cursorPluginSource\plugin.json" `
+  -Destination "$cursorPluginTarget\plugin.json"
+Copy-Item -Recurse -LiteralPath "$cursorPluginSource\skills" `
+  -Destination "$cursorPluginTarget\skills"
 ```
+
+Run `Developer: Reload Window`, then verify the plugin and skill under
+**Customize**. Cursor's **Add > From Local Repository** action imports a
+marketplace repository; it is not the local single-plugin test path described
+above.
 
 For local Claude Code testing:
 
