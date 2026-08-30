@@ -81,7 +81,7 @@ Do not enter this phase until the user has seen Phase 1 results and explicitly s
    ```
 
 4. Immediately before execution, re-query every exact issue/PR/MR and every available authoritative exact-path harness ownership source, then apply each applicable harness-specific mapping. Abort if an issue reopened, a PR/MR is no longer authoritative, or a task became active.
-5. Execute only with the exact `plan_id` shown in the confirmation. The script rechecks the whole batch before the first mutation and aborts if HEAD, branch, dirty state, ignored paths, retaining refs, baseline, lock state, registration, path resolution, managed-harness path ownership, or repository identity changed:
+5. Execute only with the exact `plan_id` shown in the confirmation. The script rechecks the whole batch before the first mutation and aborts if a target is now the main worktree, fresh scan anchor, or execution-time calling worktree, or if HEAD, branch, dirty state, ignored paths, retaining refs, baseline, lock state, registration, path resolution, managed-harness path ownership, or repository identity changed:
 
    ```bash
    python3 <skill-root>/scripts/worktree_cleanup.py execute \

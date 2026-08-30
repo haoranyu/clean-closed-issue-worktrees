@@ -20,7 +20,7 @@ The default recommendation is to remove worktrees while retaining local branches
 ## Safety properties
 
 - Only closed ordinary issues or merged PRs/MRs qualify.
-- Dirty, locked, current, main, active-task, and broad paths are refused.
+- Dirty, locked, execution-time current, main, active-task, and broad paths are refused.
 - Unknown harness state and ambiguous issue mapping are review conditions.
 - Paths recognized as harness-managed cannot be mislabeled as unmanaged; unavailable task state fails closed to **Needs review**.
 - Ignored `.env`, database, key, credential, and unknown paths require explicit review.

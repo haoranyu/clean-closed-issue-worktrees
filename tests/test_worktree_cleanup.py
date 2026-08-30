@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path, PureWindowsPath
 import subprocess
 import tempfile
@@ -269,6 +270,23 @@ class WorktreeCleanupTests(unittest.TestCase):
                 cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
         self.assertTrue(target.exists())
 
+    def test_previous_plan_schema_refuses_injected_managed_harness_snapshot(self) -> None:
+        cursor_root, target = self.add_cursor_worktree(
+            "123-old-injected-owner", "old-injected-owner-wt"
+        )
+        value = selection(target)
+        value["targets"][0]["evidence"]["harness_state"] = "inactive"
+
+        with mock.patch.object(cleanup, "cursor_worktree_roots", return_value=(cursor_root,)):
+            plan_path, plan = self.create_plan(value)
+            plan["schema_version"] = cleanup.PLAN_SCHEMA_VERSION - 1
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+            with self.assertRaisesRegex(cleanup.CleanupError, "schema-1 plan"):
+                cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+
+        self.assertTrue(target.exists())
+
     def test_execute_revalidates_harness_evidence(self) -> None:
         target = self.repo.add_branch_worktree("123-tampered-plan", "tampered-plan-wt")
         plan_path, plan = self.create_plan(selection(target))
@@ -379,6 +397,49 @@ class WorktreeCleanupTests(unittest.TestCase):
         with mock.patch.object(cleanup.Path, "cwd", return_value=target):
             with self.assertRaisesRegex(cleanup.CleanupError, "current working directory"):
                 self.create_plan(selection(target))
+
+    def test_execute_refuses_calling_worktree_after_plan_creation(self) -> None:
+        target = self.repo.add_branch_worktree(
+            "123-execute-calling", "execute-calling-wt"
+        )
+        plan_path, plan = self.create_plan(selection(target))
+
+        original_cwd = Path.cwd()
+        os.chdir(target)
+        try:
+            with self.assertRaisesRegex(cleanup.CleanupError, "current working directory"):
+                cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+        finally:
+            os.chdir(original_cwd)
+
+        self.assertTrue(target.exists())
+
+    def test_execute_refuses_fresh_scan_anchor_after_plan_creation(self) -> None:
+        target = self.repo.add_branch_worktree(
+            "123-execute-anchor", "execute-anchor-wt"
+        )
+        plan_path, plan = self.create_plan(selection(target))
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "scan anchor worktree"):
+            cleanup.execute_plan(
+                plan_path, plan["plan_id"], str(target), False
+            )
+
+        self.assertTrue(target.exists())
+
+    def test_execute_refuses_main_worktree_in_tampered_plan(self) -> None:
+        target = self.repo.add_branch_worktree(
+            "123-execute-main", "execute-main-wt"
+        )
+        plan_path, plan = self.create_plan(selection(target))
+        plan["targets"][0]["path"] = str(self.repo.main.resolve())
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with self.assertRaisesRegex(cleanup.CleanupError, "main worktree"):
+            cleanup.execute_plan(plan_path, plan["plan_id"], None, False)
+
+        self.assertTrue(self.repo.main.exists())
+        self.assertTrue(target.exists())
 
     def test_backup_branch_preserves_detached_orphan(self) -> None:
         target = self.repo.add_detached_worktree("orphan-wt")
@@ -591,6 +652,24 @@ class WorktreeCleanupTests(unittest.TestCase):
                 root,
             )
         )
+
+    def test_cursor_path_alias_is_detected_on_case_insensitive_posix_volume(self) -> None:
+        cursor_root = self.root / "case-home" / ".cursor" / "worktrees"
+        target = cursor_root / "example-repo" / "case-alias-wt"
+        target.mkdir(parents=True)
+        alias_root = self.root / "case-home" / ".CURSOR" / "worktrees"
+        alias_target = alias_root / "example-repo" / "case-alias-wt"
+        try:
+            aliases_match = alias_root.samefile(cursor_root)
+        except OSError:
+            aliases_match = False
+        if not aliases_match:
+            self.skipTest("filesystem is case-sensitive")
+
+        with mock.patch.object(cleanup, "cursor_worktree_roots", return_value=(cursor_root,)):
+            self.assertEqual(
+                cleanup.cursor_managed_harness_for_path(alias_target), "cursor"
+            )
 
     def test_scanner_managed_path_can_use_inactive_without_harness_name(self) -> None:
         cursor_root, target = self.add_cursor_worktree(

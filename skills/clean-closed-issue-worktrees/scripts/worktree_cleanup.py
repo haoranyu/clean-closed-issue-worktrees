@@ -125,7 +125,21 @@ def is_within(path: Path, parent: Path) -> bool:
         path.relative_to(parent)
         return True
     except ValueError:
+        pass
+
+    # Native Path comparison follows the runtime's lexical rules. On a
+    # case-insensitive POSIX volume, differently cased aliases can still name
+    # the same directory, so compare existing ancestors by filesystem identity.
+    parent_samefile = getattr(parent, "samefile", None)
+    if parent_samefile is None:
         return False
+    for candidate in (path, *path.parents):
+        try:
+            if parent_samefile(candidate):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
 
 
 def cursor_worktree_roots() -> Tuple[Path, ...]:
@@ -602,6 +616,25 @@ def validate_selection_evidence(
         raise CleanupError("Harness state is not proven inactive and risk_acknowledged is false")
 
 
+def validate_protected_worktree(
+    item: Dict[str, Any],
+    *,
+    main_worktree: str,
+    scan_anchor: str,
+    cwd: Path,
+) -> None:
+    path = Path(item["path"])
+    resolved = Path(item["resolved_path"])
+    if item.get("is_main") or item["path"] == main_worktree:
+        raise CleanupError(f"Refusing to remove the main worktree: {path}")
+    if item.get("is_scan_anchor") or item["path"] == scan_anchor:
+        raise CleanupError(f"Refusing to remove the scan anchor worktree: {path}")
+    if is_within(cwd, resolved):
+        raise CleanupError(
+            f"Refusing to remove the current working directory or its ancestor: {path}"
+        )
+
+
 def validate_target_for_plan(
     item: Dict[str, Any],
     selection: Dict[str, Any],
@@ -619,14 +652,14 @@ def validate_target_for_plan(
     home = canonical(Path.home())
     root = Path(path.anchor)
 
-    if item.get("is_main") or item["path"] == main_worktree:
-        raise CleanupError(f"Refusing to remove the main worktree: {path}")
-    if item.get("is_scan_anchor") or item["path"] == scan_anchor:
-        raise CleanupError(f"Refusing to remove the scan anchor worktree: {path}")
+    validate_protected_worktree(
+        item,
+        main_worktree=main_worktree,
+        scan_anchor=scan_anchor,
+        cwd=cwd,
+    )
     if path in {home, root}:
         raise CleanupError(f"Refusing broad destructive path: {path}")
-    if is_within(cwd, resolved):
-        raise CleanupError(f"Refusing to remove the current working directory or its ancestor: {path}")
     if item.get("path_is_symlinked"):
         raise CleanupError(f"Refusing a symlink-resolved worktree path: {path}")
     if not item.get("exists"):
@@ -775,11 +808,24 @@ def preflight_plan(repo: Path, plan: Dict[str, Any]) -> Dict[str, Dict[str, Any]
     if fresh["repository"].get("baseline_resolved") != plan["repository"].get("baseline_resolved"):
         raise CleanupError("Baseline moved since confirmation")
     by_path = {item["path"]: item for item in fresh["worktrees"]}
+    main_worktree = fresh["repository"]["main_worktree"]
+    scan_anchor = fresh["repository"]["scan_anchor"]
+    cwd = canonical(Path.cwd())
     for target in plan["targets"]:
         path = target["path"]
         item = by_path.get(path)
         if item is None:
             raise CleanupError(f"Worktree is no longer registered: {path}")
+        validate_protected_worktree(
+            item,
+            main_worktree=main_worktree,
+            scan_anchor=scan_anchor,
+            cwd=cwd,
+        )
+        if plan.get("schema_version") == 1 and item.get("managed_harness") is not None:
+            raise CleanupError(
+                f"Harness path ownership changed for a schema-1 plan; recreate it: {path}"
+            )
         if item.get("head") != target.get("head"):
             raise CleanupError(f"HEAD changed since confirmation: {path}")
         if item.get("branch") != target.get("branch"):
