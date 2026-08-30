@@ -38,11 +38,11 @@ gh skill preview haoranyu/clean-closed-issue-worktrees \
   clean-closed-issue-worktrees
 ```
 
-Install and pin the audited `v0.1.1` release for Codex:
+Install and pin the audited `v0.1.2` release for Codex:
 
 ```bash
 gh skill install haoranyu/clean-closed-issue-worktrees \
-  clean-closed-issue-worktrees@v0.1.1 \
+  clean-closed-issue-worktrees@v0.1.2 \
   --agent codex --scope user
 ```
 
@@ -50,7 +50,7 @@ Or for Claude Code:
 
 ```bash
 gh skill install haoranyu/clean-closed-issue-worktrees \
-  clean-closed-issue-worktrees@v0.1.1 \
+  clean-closed-issue-worktrees@v0.1.2 \
   --agent claude-code --scope user
 ```
 
@@ -61,8 +61,31 @@ npx skills add haoranyu/clean-closed-issue-worktrees \
   --skill clean-closed-issue-worktrees --agent codex --global
 ```
 
+### Plugin marketplaces
+
+This repository is also packaged as a portable Agent Plugin for Cursor and as
+a Claude Code plugin. Both manifests discover the same
+`skills/clean-closed-issue-worktrees` payload; no skill logic is duplicated.
+
+For local Cursor testing, clone the repository and link it into Cursor's local
+plugin directory, then reload Cursor:
+
+```bash
+ln -s /absolute/path/to/clean-closed-issue-worktrees \
+  ~/.cursor/plugins/local/clean-closed-issue-worktrees
+```
+
+For local Claude Code testing:
+
+```bash
+claude --plugin-dir /absolute/path/to/clean-closed-issue-worktrees
+```
+
+Marketplace installation instructions will be added after the Cursor and
+Claude community reviews approve the plugin.
+
 For manual installation, download the versioned source archive from the
-[`v0.1.1` release](https://github.com/haoranyu/clean-closed-issue-worktrees/releases/tag/v0.1.1)
+[`v0.1.2` release](https://github.com/haoranyu/clean-closed-issue-worktrees/releases/tag/v0.1.2)
 and copy its `skills/clean-closed-issue-worktrees` directory into the skill
 directory used by your agent. Do not install the entire repository: the payload is only
 [`skills/clean-closed-issue-worktrees`](skills/clean-closed-issue-worktrees).
@@ -75,6 +98,7 @@ Then ask the agent to use `$clean-closed-issue-worktrees` with a local repositor
 | --- | --- |
 | GitHub, GitLab issue and PR/MR state | Supported through the agent's provider skill, MCP, CLI, API, or browser fallback |
 | Codex and Claude Code | Installable with `gh skill`; core workflow is harness-neutral |
+| Cursor | Installable as an Agent Skill or Agent Plugin; Cursor-managed paths without authoritative task state remain **Needs review** ([tracking issue](https://github.com/haoranyu/clean-closed-issue-worktrees/issues/2)) |
 | Other Agent Skills clients | Standard `SKILL.md` payload; install manually or with a compatible skill installer |
 | Local runtime | Git and Python 3.9+ |
 | Tested systems | Ubuntu, macOS, and Windows |

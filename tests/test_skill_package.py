@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import unittest
@@ -18,6 +19,25 @@ def frontmatter_value(text: str, key: str) -> str:
 
 
 class SkillPackageTests(unittest.TestCase):
+    def test_plugin_manifests_share_identity_and_version(self) -> None:
+        agent_plugin = json.loads(
+            (REPOSITORY_ROOT / "plugin.json").read_text(encoding="utf-8")
+        )
+        claude_plugin = json.loads(
+            (REPOSITORY_ROOT / ".claude-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(
+            agent_plugin["$schema"],
+            "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        )
+        self.assertEqual(agent_plugin["name"], SKILL_ROOT.name)
+        self.assertEqual(claude_plugin["name"], SKILL_ROOT.name)
+        self.assertEqual(agent_plugin["version"], claude_plugin["version"])
+        self.assertEqual(agent_plugin["repository"], claude_plugin["repository"])
+
     def test_payload_is_self_contained(self) -> None:
         expected = [
             SKILL_FILE,
