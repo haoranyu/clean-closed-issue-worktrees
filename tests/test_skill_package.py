@@ -68,6 +68,35 @@ class SkillPackageTests(unittest.TestCase):
         metadata = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn("$clean-closed-issue-worktrees", metadata)
 
+    def test_cursor_harness_contract_is_documented(self) -> None:
+        harness = (SKILL_ROOT / "references" / "harness-detection.md").read_text(
+            encoding="utf-8"
+        )
+        skill = SKILL_FILE.read_text(encoding="utf-8")
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("## Cursor", harness)
+        for surface in (
+            "Agents Window",
+            "`/worktree`",
+            "`/best-of-n`",
+            "`--worktree",
+            "isolated local subagent",
+        ):
+            self.assertIn(surface, harness)
+        self.assertIn("~/.cursor/worktrees/<reponame>/<name>", harness)
+        self.assertIn("CURSOR_WORKTREES_ROOT", harness)
+        self.assertIn("never `not_managed`", harness)
+        self.assertIn("resumable", harness)
+        self.assertIn("explicitly completed or archived", harness)
+        self.assertIn('runtime: "local"', harness)
+        self.assertIn("current host", harness)
+        self.assertIn("Cursor-hosted Cloud Agents", harness)
+        self.assertIn("Cursor 3.5", harness)
+        self.assertIn("Cursor", skill)
+        self.assertIn("Generic local Git worktrees", readme)
+        self.assertIn("First-class harness-state integration", readme)
+
 
 if __name__ == "__main__":
     unittest.main()

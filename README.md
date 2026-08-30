@@ -2,7 +2,7 @@
 
 A safety-first agent skill for auditing and removing Git worktrees associated with closed GitHub or GitLab issues.
 
-It is designed for Codex, Claude Code, and other skill-capable agent harnesses. Provider access stays in the agent layer, while a deterministic Python script owns local Git inspection, snapshot validation, backup refs, and removal.
+It is designed for Codex, Claude Code, Cursor, and other skill-capable agent harnesses. Provider and live-task access stay in the agent layer, while a deterministic Python script owns local Git inspection, recognized Cursor-root detection, snapshot validation, backup refs, and removal.
 
 ## Why this exists
 
@@ -22,6 +22,7 @@ The default recommendation is to remove worktrees while retaining local branches
 - Only closed ordinary issues or merged PRs/MRs qualify.
 - Dirty, locked, current, main, active-task, and broad paths are refused.
 - Unknown harness state and ambiguous issue mapping are review conditions.
+- Scanner-recognized Cursor roots cannot be mislabeled as unmanaged; other harness roots follow the same fail-closed agent workflow.
 - Ignored `.env`, database, key, credential, and unknown paths require explicit review.
 - Detached orphan commits can be protected with deterministic backup branches.
 - Branch deletion uses only `git branch -d`; force deletion is not implemented.
@@ -97,11 +98,14 @@ Then ask the agent to use `$clean-closed-issue-worktrees` with a local repositor
 | Surface | Status |
 | --- | --- |
 | GitHub, GitLab issue and PR/MR state | Supported through the agent's provider skill, MCP, CLI, API, or browser fallback |
-| Codex and Claude Code | Installable with `gh skill`; core workflow is harness-neutral |
-| Cursor | Installable as an Agent Skill or Agent Plugin; Cursor-managed paths without authoritative task state remain **Needs review** ([tracking issue](https://github.com/haoranyu/clean-closed-issue-worktrees/issues/2)) |
+| Generic local Git worktrees | The engine can inspect and remove any Git-registered worktree, regardless of creator; generic Git compatibility alone does not prove task inactivity |
+| First-class harness-state integration | Codex, Claude Code, and Cursor have explicit ownership and state mappings; when authoritative host tooling is unavailable, recognized managed paths remain **Needs review** |
+| Cursor local worktrees | Installable as an Agent Skill or Agent Plugin; Agents Window, IDE `/worktree`, `/best-of-n`, and CLI `--worktree` are covered through the documented `~/.cursor/worktrees` root and an explicit absolute `CURSOR_WORKTREES_ROOT` compatibility override when present. An isolated local subagent is covered when a recognized root contains it or authoritative metadata maps its exact path; otherwise state fails closed to **Needs review** |
+| Remote Cursor Cloud Agents | Cursor-hosted and `/in-cloud` VM clones are out of local cleanup scope; an exact locally registered self-hosted/Remote Control checkout still follows normal fail-closed ownership rules |
+| Codex and Claude Code | Installable with `gh skill`; their existing task/session mapping rules are unchanged |
 | Other Agent Skills clients | Standard `SKILL.md` payload; install manually or with a compatible skill installer |
 | Local runtime | Git and Python 3.9+ |
-| Tested systems | Ubuntu, macOS, and Windows |
+| Script/package CI | Ubuntu, macOS, and Windows; live host task/session integrations are not exercised in CI |
 
 ## Provider routing
 

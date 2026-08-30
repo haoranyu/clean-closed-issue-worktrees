@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clean-closed-issue-worktrees",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Safely audit and remove Git worktrees linked to closed GitHub or GitLab issues.",
   "author": {
     "name": "haoranyu",
