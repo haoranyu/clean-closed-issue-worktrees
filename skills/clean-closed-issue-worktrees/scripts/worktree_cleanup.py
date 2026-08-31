@@ -264,6 +264,34 @@ def ignored_entries(worktree: Path) -> List[str]:
     return sorted(set(values))
 
 
+def nested_ignored_entries(
+    worktree: Path, ignored_paths: Iterable[str]
+) -> List[str]:
+    nested: List[str] = []
+
+    for raw in sorted(set(ignored_paths)):
+        normalized = raw.rstrip("/")
+
+        result = git(
+            worktree,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--ignored=traditional",
+            "--untracked-files=all",
+            "--",
+            normalized,
+        )
+
+        for entry in split_z(result.stdout):
+            if entry.startswith("!! "):
+                path = entry[3:]
+                if path != raw:
+                    nested.append(path)
+
+    return sorted(set(nested))
+
+
 def classify_ignored(paths: Iterable[str]) -> Dict[str, List[str]]:
     result: Dict[str, List[str]] = {
         "regenerable": [],
@@ -409,8 +437,16 @@ def inspect_worktree(
     if not absolute.exists() or record.get("bare"):
         return item
 
+    # entries = status_entries(absolute)
+    # ignored = ignored_entries(absolute)
+    # ignored.extend(nested_ignored_entries(absolute, ignored))
+    # ignored = sorted(set(ignored))
+    # ignored_classification = classify_ignored(ignored)
     entries = status_entries(absolute)
     ignored = ignored_entries(absolute)
+    ignored = sorted(
+        set(ignored) | set(nested_ignored_entries(absolute, ignored))
+    )
     ignored_classification = classify_ignored(ignored)
     size, size_error = directory_size(absolute)
     head = record.get("head") or git(absolute, "rev-parse", "HEAD").stdout.strip()
