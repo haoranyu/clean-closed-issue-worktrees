@@ -2,6 +2,7 @@
 name: clean-closed-issue-worktrees
 description: Safely audit and remove Git worktrees linked to closed GitHub or GitLab issues. Use when scanning worktrees, verifying issue/PR/MR state, estimating space savings, or cleaning completed work.
 license: MIT
+allowed-tools: Read
 ---
 
 # Clean Closed Issue Worktrees
@@ -9,6 +10,12 @@ license: MIT
 Clean completed worktrees through a mandatory scan-confirm-execute protocol. Match the language of all user-facing questions, reports, warnings, and results to the user's current language. Preserve commands, paths, branch names, and provider field names verbatim.
 
 Resolve relative resource paths in this file from the skill directory. Before invoking the bundled script, resolve `scripts/worktree_cleanup.py` to an absolute path so the command does not depend on the target repository's working directory.
+
+## Tool permissions
+
+`allowed-tools` pre-approves only the read tool on clients that recognize `Read`. It does not grant shell, Python, Git, write, or provider/MCP execution permissions. Use the host's normal permission flow for those tools; do not broaden permissions to bypass a prompt. A host tool approval is separate from approval of the exact cleanup plan.
+
+This metadata is not a sandbox and does not revoke permissions already granted by the host or user. Clients that ignore it must still follow the safety contract below. Read [tool-permissions.md](references/tool-permissions.md) when checking client support or troubleshooting tool access.
 
 ## Safety contract
 
