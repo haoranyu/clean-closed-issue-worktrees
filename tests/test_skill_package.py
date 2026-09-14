@@ -57,6 +57,15 @@ class SkillPackageTests(unittest.TestCase):
         self.assertLessEqual(len(frontmatter_value(text, "description")), 200)
         self.assertIn("Python 3.9+", text)
 
+    def test_skill_preapprovals_cannot_grant_execution_or_writes(self) -> None:
+        text = SKILL_FILE.read_text(encoding="utf-8")
+        frontmatter = text.split("---", 2)[1]
+        self.assertNotIn("allowed_tools:", frontmatter)
+        # Keep the grant to a single known read-only tool. A shell/interpreter
+        # wildcard would also authorize the destructive execute subcommand.
+        grant = frontmatter_value(frontmatter, "allowed-tools")
+        self.assertEqual(grant, "Read")
+
     def test_markdown_reference_links_resolve_inside_payload(self) -> None:
         text = SKILL_FILE.read_text(encoding="utf-8")
         links = re.findall(r"\]\((references/[^)]+)\)", text)

@@ -145,6 +145,17 @@ Then ask the agent to use `$clean-closed-issue-worktrees` with a local repositor
 | Local runtime | Git and Python 3.9+ |
 | Script/package CI | Ubuntu, macOS, and native Windows. CI exercises default-home and explicit-root Cursor detection plus the original generic scan/plan/remove flow; live host task/session integrations are not exercised in CI |
 
+## Tool permissions
+
+The skill declares `allowed-tools: Read` to pre-approve only reading on clients
+that recognize that tool name. Shell commands, including the Python cleanup
+script, receive no automatic approval from this declaration. Existing host
+permissions still apply: the field is not a sandbox and cannot revoke a broad
+permission the user has already granted. The scan-confirm-execute contract and
+script checks remain required on every client. See the
+[client support and verification notes](skills/clean-closed-issue-worktrees/references/tool-permissions.md)
+for the distinction between metadata validation and runtime enforcement.
+
 ## Provider routing
 
 The skill prefers, in order:
